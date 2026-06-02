@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Crevy Content
 
-## Getting Started
+Centro de mando de contenido de Instagram para la marca personal **Crevy** (`tony.ia_`).
+Next.js 16 + React 19 + Supabase + OpenRouter (Claude 3.5 Haiku) + Apify + ElevenLabs + Meta Graph API.
 
-First, run the development server:
+## Qué hace
+
+- **Dashboard**: seguidores, reach, guardados, ER, reach mes a mes y audiencia por país (datos reales).
+- **Instagram**: sincroniza Reels desde la Meta API. Al sincronizar, los reels nuevos se **transcriben** (Apify + ElevenLabs) y se **analizan** con IA automáticamente.
+- **AI Chat**: preguntale a Claude qué te está funcionando y por qué, qué hooks/ángulos/guiones probar. Razona sobre transcripciones + análisis + métricas reales.
+- Tema claro/oscuro con toggle.
+
+## Desarrollo
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # completá las claves
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Base de datos
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Ejecutá `supabase_schema.sql` en el SQL Editor de Supabase para crear la tabla `reels` y sus políticas.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploy en Vercel
 
-## Learn More
+1. Importá el repo en Vercel.
+2. Cargá las variables de entorno de `.env.example` en Project → Settings → Environment Variables.
+3. Deploy.
 
-To learn more about Next.js, take a look at the following resources:
+> **Transcripción en Vercel**: `/api/transcribe` usa Apify (30-90s por reel). En el plan Hobby las funciones tienen límite de tiempo bajo y puede cortarse. Para transcribir en producción conviene plan Pro (hasta 300s) o correr el backfill localmente (`node backfill.mjs` con el dev server activo).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> **Token de Meta**: usá un token de **larga duración** (60 días). Pegá un token corto fresco en `META_ACCESS_TOKEN` y corré `node exchange_meta_token.js` para convertirlo.
