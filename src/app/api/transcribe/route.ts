@@ -4,6 +4,7 @@ import { supabase } from '@/utils/supabase';
 
 // Reels pueden tardar en scrapear/transcribir; damos margen al handler.
 export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
 
 /**
  * Pipeline de transcripción:

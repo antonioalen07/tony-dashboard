@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 
 const DEFAULT_IG_ACCOUNT_ID = '17841476480622974';
 
+export const dynamic = 'force-dynamic';
+
 // Mapa de códigos ISO de país a etiqueta corta para la gráfica.
 const COUNTRY_LABEL: Record<string, string> = {
   AR: 'AR', ES: 'ES', CO: 'CO', CL: 'CL', MX: 'MX', PE: 'PE', US: 'US', UY: 'UY', EC: 'EC', VE: 'VE',

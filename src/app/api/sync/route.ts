@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     const token = process.env.META_ACCESS_TOKEN;

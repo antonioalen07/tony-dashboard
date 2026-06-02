@@ -6,6 +6,8 @@ import { NextResponse } from 'next/server';
 // definir META_IG_ACCOUNT_ID en el entorno.
 const DEFAULT_IG_ACCOUNT_ID = '17841476480622974';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const token = process.env.META_ACCESS_TOKEN;
