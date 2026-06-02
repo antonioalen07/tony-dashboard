@@ -1,17 +1,8 @@
 import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { supabase } from '@/utils/supabase';
+import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
 
 export const dynamic = 'force-dynamic';
-
-const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || 'placeholder',
-  defaultHeaders: {
-    'HTTP-Referer': 'https://crevy.content',
-    'X-Title': 'Crevy Content',
-  },
-});
 
 // Prompt base/genérico de growth. El usuario lo irá puliendo después para aislar
 // los factores concretos que quiere optimizar en su contenido.
@@ -59,8 +50,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Reel ID is required' }, { status: 400 });
     }
 
-    if (!process.env.OPENROUTER_API_KEY) {
-      return NextResponse.json({ error: 'OPENROUTER_API_KEY no configurada' }, { status: 500 });
+    if (!hasLLMKey()) {
+      return NextResponse.json({ error: 'No hay API key de LLM (OPENAI_API_KEY u OPENROUTER_API_KEY)' }, { status: 500 });
     }
 
     // Obtener datos del Reel desde Supabase
@@ -80,8 +71,8 @@ export async function POST(request: Request) {
       ? reel.transcript
       : reel.title || 'Contenido de video sin descripción';
 
-    const completion = await openai.chat.completions.create({
-      model: 'anthropic/claude-3.5-haiku',
+    const completion = await llm.chat.completions.create({
+      model: LLM_MODEL,
       temperature: 0.6,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },

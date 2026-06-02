@@ -1,18 +1,10 @@
 import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 import { supabase } from '@/utils/supabase';
+import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
-
-const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || 'placeholder',
-  defaultHeaders: {
-    'HTTP-Referer': 'https://crevy.content',
-    'X-Title': 'Crevy Content',
-  },
-});
 
 const fmt = (n: number | null | undefined) => (n == null ? 's/d' : Number(n).toLocaleString('es'));
 
@@ -51,8 +43,8 @@ Cómo responder:
 
 export async function POST(request: Request) {
   try {
-    if (!process.env.OPENROUTER_API_KEY) {
-      return NextResponse.json({ error: 'OPENROUTER_API_KEY no configurada' }, { status: 500 });
+    if (!hasLLMKey()) {
+      return NextResponse.json({ error: 'No hay API key de LLM (OPENAI_API_KEY u OPENROUTER_API_KEY)' }, { status: 500 });
     }
 
     const { messages } = await request.json();
@@ -86,8 +78,8 @@ export async function POST(request: Request) {
       ),
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: 'anthropic/claude-3.5-haiku',
+    const completion = await llm.chat.completions.create({
+      model: LLM_MODEL,
       temperature: 0.7,
       max_tokens: 1200,
       messages: convo,
