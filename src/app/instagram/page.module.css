@@ -43,6 +43,43 @@
   font-weight: 500;
 }
 
+.filterLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sortGroup {
+  display: inline-flex;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-border);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.sortBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+}
+
+.sortBtn:hover { color: var(--text-primary); }
+
+.sortActive {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
 .gridContainer {
   flex: 1;
   overflow-y: auto;

@@ -97,6 +97,21 @@
   color: var(--text-secondary);
 }
 
+.medianChip {
+  align-self: flex-start;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.medianChip[data-good='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+}
+
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

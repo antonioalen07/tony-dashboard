@@ -1,18 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import ReelGrid from '@/components/ReelGrid';
 import ReelDetailPanel from '@/components/ReelDetailPanel';
 import { supabase } from '@/utils/supabase';
+import { useToast } from '@/components/Toast';
+import { median } from '@/lib/viral';
 import styles from './page.module.css';
 
+type SortMode = 'recent' | 'views' | 'er';
+
+const SORTS: { key: SortMode; label: string }[] = [
+  { key: 'recent', label: 'Recientes' },
+  { key: 'views', label: 'Más vistos' },
+  { key: 'er', label: 'Mejor ER' },
+];
+
 export default function InstagramIntelligence() {
+  const { toast } = useToast();
   const [selectedReel, setSelectedReel] = useState<any>(null);
   const [reels, setReels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortMode>('recent');
 
   const fetchReels = async () => {
     const { data } = await supabase
@@ -26,6 +38,18 @@ export default function InstagramIntelligence() {
   useEffect(() => {
     fetchReels();
   }, []);
+
+  const sortedReels = useMemo(() => {
+    const copy = [...reels];
+    if (sort === 'views') copy.sort((a, b) => (b.views || 0) - (a.views || 0));
+    else if (sort === 'er') copy.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
+    return copy;
+  }, [reels, sort]);
+
+  const medianViews = useMemo(
+    () => median(reels.map((r) => r.views || 0).filter((v: number) => v > 0)),
+    [reels]
+  );
 
   // Enriquecimiento automático: transcribe + analiza los reels que aún no lo estén.
   const enrichReel = async (id: string, needTranscript: boolean) => {
@@ -55,12 +79,11 @@ export default function InstagramIntelligence() {
       const data = await res.json();
       if (!data.success) {
         setStatus(null);
-        alert('Error en la sincronización: ' + data.error);
+        toast('Error en la sincronización: ' + data.error, 'error');
         setSyncing(false);
         return;
       }
 
-      // Traer el estado actual y detectar pendientes de enriquecer.
       const { data: fresh } = await supabase
         .from('reels')
         .select('*')
@@ -79,11 +102,11 @@ export default function InstagramIntelligence() {
       }
 
       await fetchReels();
-      setStatus(`Listo. ${data.syncedCount} reels sincronizados, ${pending.length} enriquecidos.`);
-      setTimeout(() => setStatus(null), 6000);
+      setStatus(null);
+      toast(`Sincronización lista: ${data.syncedCount} reels, ${pending.length} enriquecidos`, 'success');
     } catch (e) {
       setStatus(null);
-      alert('Error en la llamada de red');
+      toast('Error en la llamada de red', 'error');
     }
     setSyncing(false);
   };
@@ -102,7 +125,20 @@ export default function InstagramIntelligence() {
       </header>
 
       <div className={styles.filters}>
-        <span className={styles.filterText}>Todos los reels ({reels.length})</span>
+        <div className={styles.filterLeft}>
+          <span className={styles.filterText}>Todos los reels ({reels.length})</span>
+          <div className={styles.sortGroup} role="group" aria-label="Ordenar reels">
+            {SORTS.map((s) => (
+              <button
+                key={s.key}
+                className={`${styles.sortBtn} ${sort === s.key ? styles.sortActive : ''}`}
+                onClick={() => setSort(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {status && <span className={styles.statusText}>{status}</span>}
       </div>
 
@@ -110,13 +146,14 @@ export default function InstagramIntelligence() {
         {loading ? (
           <p style={{ color: 'var(--text-secondary)' }}>Cargando reels desde Supabase…</p>
         ) : (
-          <ReelGrid reels={reels} onSelectReel={setSelectedReel} />
+          <ReelGrid reels={sortedReels} onSelectReel={setSelectedReel} />
         )}
       </div>
 
       {selectedReel && (
         <ReelDetailPanel
           reel={selectedReel}
+          medianViews={medianViews}
           onClose={() => {
             setSelectedReel(null);
             fetchReels();

@@ -33,12 +33,34 @@
   font-size: 2rem;
   font-weight: 700;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.valueSkeleton {
+  height: 2.4rem;
+  width: 70%;
+  border-radius: 8px;
+  background: var(--surface-2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .valueSkeleton { animation: none; }
 }
 
 .trend {
   font-size: 0.8rem;
   display: flex;
   gap: 6px;
+}
+
+.trendDown {
+  color: var(--accent-negative);
 }
 
 .trendLabel {

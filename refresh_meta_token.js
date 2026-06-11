@@ -34,28 +34,40 @@ require('dotenv').config({ path: './.env.local' });
     process.exit(1);
   }
 
-  const longToken = data.access_token;
+  const longUserToken = data.access_token;
   const days = data.expires_in ? Math.round(data.expires_in / 86400) : '≈60';
-  console.log(`✓ Token de larga duración obtenido (expira en ${days} días).`);
+  console.log(`✓ Token de usuario de larga duración obtenido (expira en ${days} días).`);
 
-  // 2) (Opcional) descubrir el IG account id; no es bloqueante
+  // 2) Buscar la Página vinculada para sacar un PAGE TOKEN PERMANENTE.
+  //    Requiere que el token corto se haya generado con los permisos:
+  //    pages_show_list, pages_read_engagement, instagram_basic, instagram_manage_insights, business_management
   let igId = null;
+  let pageToken = null;
   try {
-    const pagesRes = await fetch(`https://graph.facebook.com/v20.0/me/accounts?fields=instagram_business_account&access_token=${longToken}`);
+    const pagesRes = await fetch(
+      `https://graph.facebook.com/v20.0/me/accounts?fields=name,access_token,instagram_business_account&access_token=${longUserToken}`
+    );
     const pages = await pagesRes.json();
-    const page = pages.data?.find((p) => p.instagram_business_account);
-    if (page) igId = page.instagram_business_account.id;
+    const page = pages.data?.find((p) => p.instagram_business_account) || pages.data?.[0];
+    if (page) {
+      if (page.instagram_business_account) igId = page.instagram_business_account.id;
+      if (page.access_token) pageToken = page.access_token; // este NO expira
+      console.log(`✓ Página detectada: ${page.name}${igId ? ' | IG ' + igId : ''}`);
+    }
   } catch {}
-  if (igId) console.log(`✓ IG account id detectado: ${igId}`);
-  else console.log('• No se detectó IG account vía páginas; se usará el id por defecto del código.');
+
+  // Preferimos el page token (permanente); si no hay, usamos el de usuario (60 días).
+  const finalToken = pageToken || longUserToken;
+  if (pageToken) console.log('✓ PAGE TOKEN PERMANENTE obtenido (no expira). Usá este en Vercel.');
+  else console.log('• No apareció Página con permisos → queda el token de 60 días.\n  (Regenerá el token corto tildando pages_show_list + pages_read_engagement para el permanente.)');
 
   // 3) Escribir .env.local
   let env = fs.readFileSync('./.env.local', 'utf8');
-  env = env.replace(/META_ACCESS_TOKEN=.*/, `META_ACCESS_TOKEN=${longToken}`);
+  env = env.replace(/META_ACCESS_TOKEN=.*/, `META_ACCESS_TOKEN=${finalToken}`);
   if (igId) {
     if (/META_IG_ACCOUNT_ID=/.test(env)) env = env.replace(/META_IG_ACCOUNT_ID=.*/, `META_IG_ACCOUNT_ID=${igId}`);
     else env += `\nMETA_IG_ACCOUNT_ID=${igId}\n`;
   }
   fs.writeFileSync('./.env.local', env);
-  console.log('✓ .env.local actualizado. Reiniciá el dev server (y actualizá la var en Vercel).');
+  console.log('✓ .env.local actualizado. Copiá META_ACCESS_TOKEN a Vercel y redeploy.');
 })();

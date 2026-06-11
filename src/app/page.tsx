@@ -11,14 +11,36 @@ import styles from './page.module.css';
 
 const FOLLOWER_GOAL = 50000;
 
+/** Delta % de una métrica agregada por mes (mes actual vs anterior). */
+function monthlyDelta(reels: any[], metric: (r: any) => number): { trend: 'up' | 'down'; label: string } | null {
+  const now = new Date();
+  const keyOf = (d: Date) => d.getFullYear() * 12 + d.getMonth();
+  const curKey = keyOf(now);
+  let cur = 0;
+  let prev = 0;
+  for (const r of reels) {
+    if (!r.published_at) continue;
+    const k = keyOf(new Date(r.published_at));
+    if (k === curKey) cur += metric(r) || 0;
+    else if (k === curKey - 1) prev += metric(r) || 0;
+  }
+  // Sin datos del mes actual (o sin mes anterior) no hay señal: no mostrar delta.
+  if (prev <= 0 || cur <= 0) return null;
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  if (!Number.isFinite(pct)) return null;
+  return { trend: pct >= 0 ? 'up' : 'down', label: `${pct >= 0 ? '+' : ''}${pct}%` };
+}
+
 export default function Dashboard() {
   const [reels, setReels] = useState<any[]>([]);
   const [followers, setFollowers] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchReels = async () => {
       const { data } = await supabase.from('reels').select('*');
       if (data) setReels(data);
+      setLoading(false);
     };
 
     const fetchProfile = async () => {
@@ -53,6 +75,11 @@ export default function Dashboard() {
     return num.toString();
   };
 
+  // Deltas mes actual vs mes pasado (solo si hay datos de ambos meses)
+  const reachDelta = monthlyDelta(reels, (r) => r.reach || r.views || 0);
+  const savesDelta = monthlyDelta(reels, (r) => r.saves || 0);
+  const reelsDelta = monthlyDelta(reels, () => 1);
+
   const hour = new Date().getHours();
   const greeting = hour < 6 ? 'Buenas noches' : hour < 13 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
 
@@ -69,11 +96,34 @@ export default function Dashboard() {
       </header>
 
       <div className={styles.metricsGrid}>
-        <MetricCard title="Seguidores" value={followers != null ? formatNumber(followers) : 'N/A'} icon={<Users size={18} />} />
-        <MetricCard title="Reach Total" value={formatNumber(totalReach)} icon={<Eye size={18} />} />
-        <MetricCard title="Total Guardados" value={formatNumber(totalSaves)} icon={<Bookmark size={18} />} />
-        <MetricCard title="Engagement Rate" value={avgER} icon={<TrendingUp size={18} />} />
-        <MetricCard title="Reels Publicados" value={totalReels.toString()} icon={<Film size={18} />} />
+        <MetricCard
+          title="Seguidores"
+          value={followers != null ? formatNumber(followers) : 'N/A'}
+          icon={<Users size={18} />}
+          loading={loading && followers == null}
+        />
+        <MetricCard
+          title="Reach Total"
+          value={formatNumber(totalReach)}
+          icon={<Eye size={18} />}
+          loading={loading}
+          {...(reachDelta ? { trend: reachDelta.trend, trendValue: reachDelta.label } : {})}
+        />
+        <MetricCard
+          title="Total Guardados"
+          value={formatNumber(totalSaves)}
+          icon={<Bookmark size={18} />}
+          loading={loading}
+          {...(savesDelta ? { trend: savesDelta.trend, trendValue: savesDelta.label } : {})}
+        />
+        <MetricCard title="Engagement Rate" value={avgER} icon={<TrendingUp size={18} />} loading={loading} />
+        <MetricCard
+          title="Reels Publicados"
+          value={totalReels.toString()}
+          icon={<Film size={18} />}
+          loading={loading}
+          {...(reelsDelta ? { trend: reelsDelta.trend, trendValue: reelsDelta.label } : {})}
+        />
       </div>
 
       <div className={styles.chartsRow}>

@@ -5,10 +5,16 @@ Next.js 16 + React 19 + Supabase + OpenRouter (Claude 3.5 Haiku) + Apify + Eleve
 
 ## Qué hace
 
-- **Dashboard**: seguidores, reach, guardados, ER, reach mes a mes y audiencia por país (datos reales).
-- **Instagram**: sincroniza Reels desde la Meta API. Al sincronizar, los reels nuevos se **transcriben** (Apify + ElevenLabs) y se **analizan** con IA automáticamente.
-- **AI Chat**: preguntale a Claude qué te está funcionando y por qué, qué hooks/ángulos/guiones probar. Razona sobre transcripciones + análisis + métricas reales.
-- Tema claro/oscuro con toggle.
+- **Dashboard**: seguidores, reach, guardados, ER, deltas vs mes pasado, reach mes a mes y audiencia por país (datos reales).
+- **Instagram**: sincroniza Reels desde la Meta API. Al sincronizar, los reels nuevos se **transcriben** (Apify + ElevenLabs) y se **analizan** con IA automáticamente. Orden por recientes/vistos/ER y badges de cobertura.
+- **Inspiración (Banger Hunter)**: escaneá a tus referentes fijos o investigá cualquier cuenta puntual. Detecta videos virales con la fórmula del monitor_viral (score 0-100: velocidad vs mediana de la cuenta + penetración + frescura; banger = ≥60) y **adapta el guion a tu marca** (transcribe el viral y lo reescribe con tu voz, pilares y kit de marca).
+- **AI Chat**: estratega personal con tu kit de marca completo (avatar, pilares, variables probadas). Sesiones persistentes y retomables. Razona sobre transcripciones + análisis + métricas reales.
+- Tema claro/oscuro, responsive con drawer mobile, toasts.
+
+## Migraciones de base
+
+1. `supabase_schema.sql` — tabla `reels` (inicial).
+2. `supabase_migration_inspiration.sql` — referentes, bangers, sesiones de chat (**correr en el SQL Editor de Supabase**). La app degrada con un aviso si falta.
 
 ## Desarrollo
 

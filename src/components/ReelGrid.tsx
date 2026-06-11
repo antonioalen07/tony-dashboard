@@ -1,3 +1,4 @@
+import { FileText, Sparkles } from 'lucide-react';
 import styles from './ReelGrid.module.css';
 
 interface ReelGridProps {
@@ -5,25 +6,61 @@ interface ReelGridProps {
   onSelectReel: (reel: any) => void;
 }
 
+const fmt = (n: number) => {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
+};
+
 export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
   if (reels.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)' }}>No hay reels sincronizados.</div>;
+    return (
+      <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+        No hay reels sincronizados todavía. Tocá <strong>Sincronizar Reels</strong> para traerlos
+        desde tu cuenta: se transcriben y analizan solos.
+      </div>
+    );
   }
 
   return (
     <div className={styles.grid}>
-      {reels.map((reel) => (
-        <div key={reel.id} className={styles.card} onClick={() => onSelectReel(reel)}>
-          <img src={reel.cover_url ? `https://wsrv.nl/?url=${encodeURIComponent(reel.cover_url)}` : ''} alt={reel.title} className={styles.cover} referrerPolicy="no-referrer" />
-          <div className={styles.overlay}>
-            <h4 className={styles.title}>{reel.title}</h4>
-            <div className={styles.stats}>
-              <span>{reel.views} vistas</span>
-              {reel.retention && <span className={styles.retention}>{reel.retention} ret</span>}
+      {reels.map((reel) => {
+        const hasTranscript = Boolean(reel.transcript && String(reel.transcript).trim());
+        const hasAnalysis = Boolean(reel.ai_analysis && reel.ai_analysis.length);
+        return (
+          <div key={reel.id} className={styles.card} onClick={() => onSelectReel(reel)}>
+            <img
+              src={reel.cover_url ? `https://wsrv.nl/?url=${encodeURIComponent(reel.cover_url)}` : ''}
+              alt={reel.title}
+              className={styles.cover}
+              referrerPolicy="no-referrer"
+              loading="lazy"
+            />
+            <div className={styles.badges}>
+              {hasTranscript && (
+                <span className={styles.badge} title="Transcripción lista">
+                  <FileText size={11} />
+                </span>
+              )}
+              {hasAnalysis && (
+                <span className={`${styles.badge} ${styles.badgeAccent}`} title="Análisis IA listo">
+                  <Sparkles size={11} />
+                </span>
+              )}
+            </div>
+            <div className={styles.overlay}>
+              <h4 className={styles.title}>{reel.title}</h4>
+              <div className={styles.stats}>
+                <span>{fmt(reel.views || 0)} vistas</span>
+                {reel.engagement_rate != null && (
+                  <span className={styles.retention}>{reel.engagement_rate}% ER</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

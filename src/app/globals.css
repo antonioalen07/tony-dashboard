@@ -133,6 +133,12 @@ h1, h2, h3, h4, h5, h6 {
   height: 100vh;
 }
 
+@media (max-width: 900px) {
+  .main-content {
+    padding: 4.25rem 1rem 1.5rem; /* aire para el botón de menú flotante */
+  }
+}
+
 /* Panel: superficie sólida (sin glass decorativo) */
 .glass-panel {
   background: var(--card-bg);

@@ -31,6 +31,30 @@
   transform: scale(1.05);
 }
 
+.badges {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 5px;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+.badgeAccent {
+  color: #2dd4bf;
+}
+
 .overlay {
   position: absolute;
   bottom: 0;

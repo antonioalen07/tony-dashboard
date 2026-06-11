@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
+import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
   title: 'Crevy Content',
@@ -21,10 +22,12 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <div className="app-container">
-          <Sidebar />
-          <main className="main-content">{children}</main>
-        </div>
+        <ToastProvider>
+          <div className="app-container">
+            <Sidebar />
+            <main className="main-content">{children}</main>
+          </div>
+        </ToastProvider>
       </body>
     </html>
   );

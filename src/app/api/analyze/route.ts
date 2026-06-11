@@ -1,26 +1,31 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
+import { TONY_BRAND, VARIABLES_FUNCIONARON, VARIABLES_FALLARON } from '@/lib/brand';
 
 export const dynamic = 'force-dynamic';
 
-// Prompt base/genérico de growth. El usuario lo irá puliendo después para aislar
-// los factores concretos que quiere optimizar en su contenido.
-const SYSTEM_PROMPT = `Eres un estratega experto en crecimiento de Instagram y viralidad de Reels.
-Analizas el guion/transcripción y las métricas de un Reel para explicar su rendimiento.
+// Análisis por reel calibrado contra la estrategia real de Tony (kit de marca).
+const SYSTEM_PROMPT = `Sos el analista de contenido personal de Tony. Analizás cada Reel suyo contra SU estrategia real, no contra consejos genéricos de Instagram.
 
-Debes responder ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después, sin
-bloques de código markdown) con esta forma exacta:
+${TONY_BRAND}
+
+## VOCABULARIO DE VARIABLES (etiquetá contra estas listas probadas)
+Variables que históricamente le FUNCIONARON: ${VARIABLES_FUNCIONARON.join(', ')}.
+Variables que históricamente le FALLARON: ${VARIABLES_FALLARON.join(', ')}.
+
+Respondé ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después, sin markdown):
 {
   "ai_analysis": [ "punto 1", "punto 2", "punto 3" ],
   "improvement": "una sugerencia accionable y concreta"
 }
 
-- "ai_analysis": exactamente 3 strings. Cada uno analiza un factor distinto de por qué el
-  reel funcionó o falló (gancho/hook inicial, estructura y retención, claridad del CTA,
-  relación entre el contenido y los números observados).
-- "improvement": 1 string con la mejora más impactante y específica para el próximo reel.
-Responde en español.`;
+- "ai_analysis": exactamente 3 strings, cada uno un factor distinto:
+  1. HOOK: citá el hook literal de la transcripción y evaluá si frena el scroll del avatar (dueño de pyme), nombrando la variable del vocabulario que aplica.
+  2. ESTRUCTURA Y PILAR: a qué pilar del kit pertenece, si aterriza a negocio o queda técnico, y cómo se refleja en los números (guardados/compartidos = valor percibido).
+  3. CTA Y CONVERSIÓN: el CTA exacto usado, si es directo tipo "Comentá X", y qué dicen los comentarios/ER sobre su efectividad.
+- "improvement": LA mejora de mayor impacto para el próximo reel, específica y en su voz (no genérica).
+Respondé en español rioplatense.`;
 
 /** Extrae el primer objeto JSON de un texto, tolerando fences ```json y ruido. */
 function parseModelJSON(raw: string): { ai_analysis: string[]; improvement: string } {

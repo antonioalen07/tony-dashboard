@@ -1,21 +1,44 @@
-import { useState } from 'react';
-import { X, ExternalLink, Sparkles, FileText, Download, AlertCircle, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, ExternalLink, Sparkles, FileText, Download, Copy, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
+import { useToast } from '@/components/Toast';
 import styles from './ReelDetailPanel.module.css';
 
 interface ReelDetailPanelProps {
   reel: any;
   onClose: () => void;
+  medianViews?: number;
 }
 
-export default function ReelDetailPanel({ reel: initialReel, onClose }: ReelDetailPanelProps) {
+export default function ReelDetailPanel({ reel: initialReel, onClose, medianViews = 0 }: ReelDetailPanelProps) {
+  const { toast } = useToast();
   const [reel, setReel] = useState(initialReel);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const refreshReel = async () => {
     const { data: updatedReel } = await supabase.from('reels').select('*').eq('id', reel.id).single();
     if (updatedReel) setReel(updatedReel);
+  };
+
+  const vsMedian =
+    medianViews > 0 && reel.views > 0 ? Math.round((reel.views / medianViews) * 10) / 10 : null;
+
+  const handleCopyTranscript = async () => {
+    try {
+      await navigator.clipboard.writeText(reel.transcript || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast('No se pudo copiar', 'error');
+    }
   };
 
   const handleTranscribe = async () => {
@@ -29,11 +52,12 @@ export default function ReelDetailPanel({ reel: initialReel, onClose }: ReelDeta
       const data = await res.json();
       if (data.success) {
         await refreshReel();
+        toast('Transcripción lista', 'success');
       } else {
-        alert('Error transcribiendo: ' + data.error);
+        toast('Error transcribiendo: ' + data.error, 'error');
       }
     } catch (e) {
-      alert('Error en llamada a red');
+      toast('Error en llamada a red', 'error');
     }
     setIsTranscribing(false);
   };
@@ -60,11 +84,12 @@ export default function ReelDetailPanel({ reel: initialReel, onClose }: ReelDeta
       const data = await res.json();
       if (data.success) {
         await refreshReel();
+        toast('Análisis generado', 'success');
       } else {
-        alert('Error analizando: ' + data.error);
+        toast('Error analizando: ' + data.error, 'error');
       }
     } catch (e) {
-      alert('Error en llamada a red');
+      toast('Error en llamada a red', 'error');
     }
     setIsAnalyzing(false);
   };
@@ -86,6 +111,15 @@ export default function ReelDetailPanel({ reel: initialReel, onClose }: ReelDeta
             <div className={styles.headerInfo}>
               <h2 className={styles.title}>{reel.title || 'Sin título'}</h2>
               <span className={styles.date}>{new Date(reel.published_at).toLocaleDateString()}</span>
+              {vsMedian != null && (
+                <span
+                  className={styles.medianChip}
+                  data-good={vsMedian >= 1}
+                  title={`Mediana de tus reels: ${medianViews.toLocaleString('es')} vistas`}
+                >
+                  {vsMedian}x tu mediana de vistas
+                </span>
+              )}
             </div>
           </div>
 
@@ -190,9 +224,14 @@ export default function ReelDetailPanel({ reel: initialReel, onClose }: ReelDeta
 
           {reel.transcript && (
             <div className={styles.section}>
-              <h3 className={styles.sectionTitle}>
-                <FileText size={16} className="text-secondary" /> Transcripción
-              </h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 className={styles.sectionTitle}>
+                  <FileText size={16} className="text-secondary" /> Transcripción
+                </h3>
+                <button onClick={handleCopyTranscript} className={styles.editBtn} title="Copiar transcripción">
+                  {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copiada' : 'Copiar'}
+                </button>
+              </div>
               <div className={styles.transcriptBox}>{reel.transcript}</div>
             </div>
           )}
