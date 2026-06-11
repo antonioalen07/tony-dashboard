@@ -40,6 +40,37 @@ Hook genérico · Sin CTA · CTA vago · Muy largo · Demasiado técnico sin ate
 ## VOZ Y TONO
 Español rioplatense (vos/tenés), directo, concreto, sin humo ni buzzwords. Habla como un dueño de negocio que ya lo resolvió, no como un gurú. Números y casos reales > promesas. Confianza con honestidad (muestra errores propios).`;
 
+/**
+ * Estrategia maestra de guiones de alta conversión (metodología aportada por
+ * Antonio, basada en +186M visitas mensuales). Sintetizada para los prompts:
+ * rige CÓMO se escribe todo guion del sistema.
+ */
+export const SCRIPT_STRATEGY = `## ESTRATEGIA DE GUIONES DE ALTA CONVERSIÓN (obligatoria para todo guion)
+
+### Principio binario
+Un video funciona o no funciona, no hay punto medio. La REALIDAD entregada debe superar la EXPECTATIVA generada. Antes de guionar validá la idea: ¿ataca un dolor específico del avatar? ¿alguien que la vea 3 segundos siente algo (curiosidad, miedo a perder, rechazo, sorpresa)? Si no, cambiá la idea.
+
+### Embudo: clasificá TODO guion antes de escribir
+- **TOF** (crecer, viralizar — el default para adaptar virales): habla de PROBLEMAS. Reels y trial reels. Decí QUÉ hacer, NUNCA el CÓMO paso a paso: si explicás todo, ya no te necesitan (por eso el contenido "educativo que aporta valor" no vende). Curiosidad abierta + CTA a recurso gratuito.
+- **MOF** (confianza, conversaciones): habla de SOLUCIONES, el cómo. Carruseles, historias, reels.
+- **BOF** (vender, agendar): objeciones y casos de éxito. CTAs duros, historias.
+
+### Estructura maestra (5 componentes, en orden)
+1. **PACKAGING / gancho visual**: el primer frame es la miniatura. Siempre sugerir qué se ve: texto en pantalla, locación, objeto o acción que frene el scroll.
+2. **HOOK hablado (0-3s)**: contraste de creencia ("todos dicen X, es exactamente al revés"), afirmación provocadora, dato/resultado inmediato, o pregunta directa al avatar. PROHIBIDO presentarse ("hola, soy...").
+3. **ESQUEMA**: QUÉ (punto principal claro) → POR QUÉ le importa al espectador ANTES de desarrollar → CÓMO (ejemplos concretos).
+4. **CUERPO (60-70% del guion)**: storytelling, no listas secas. Cada punto envuelto en micro-historia con los 5 elementos: ubicación, acción, pensamiento, emoción, diálogo. Incluir SIEMPRE al menos una prueba social específica (resultado propio o de cliente con número, tiempo y contexto).
+5. **OUTRO**: moraleja que posiciona como experto (perspectiva propia, no informador) + **CTA NATIVO** que no rompe el ritmo, con 4 componentes: entregable específico + resultado específico + menor tiempo posible + menor esfuerzo posible. ("Comentá GUION y te mando el template exacto que convirtió $6M, adaptable a tu negocio en 20 minutos" — nunca "seguime para más").
+
+### Estructura TOF (para guiones de crecimiento/virales)
+ATENCIÓN (gancho 3s) → PROBLEMA (descrito con tanta precisión que piense "esto es exactamente lo que me pasa" + el INSIGHT de por qué lo tiene) → SOLUCIÓN (QUÉ hacer, no cómo) → PRUEBA SOCIAL → ACCIÓN (CTA nativo de 4 componentes).
+
+### Reglas transversales
+- Ángulos ganadores: girar siempre sobre los 5-7 dolores fijos del avatar con ideas y ángulos nuevos. Repetición > novedad.
+- Claridad > volumen: si no se entiende a la primera, se reescribe. Los primeros 3s deben responder "¿esto es para mí?".
+- Calidad > cantidad: un guion excelente vale más que cinco mediocres.
+- La IA amplifica la voz del dueño, no la reemplaza: el guion debe sonar exactamente como habla Tony.`;
+
 /** Variables battle-tested del monitor_viral para etiquetar análisis. */
 export const VARIABLES_FUNCIONARON = [
   'Hook con número', 'Hook con pregunta', 'Hook con shock', 'Problema del vertical',

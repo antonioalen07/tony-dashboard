@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Sparkles, Loader2, Plus, Trash2, Copy, Check, MessageSquare } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
+import { loadWork, saveWork } from '@/lib/workSession';
 import styles from './chat.module.css';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
@@ -61,7 +62,10 @@ export default function ChatPage() {
         .select('id, title, updated_at')
         .order('updated_at', { ascending: false });
       if (error) {
+        // Sin migración: modo temporal con caché de sesión de trabajo
         setSessionsEnabled(false);
+        const cached = loadWork<Msg[]>('chat-temp', []);
+        if (cached.length > 0) setMessages(cached);
         return;
       }
       setSessions(data || []);
@@ -71,6 +75,11 @@ export default function ChatPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // En modo temporal, los mensajes sobreviven a la navegación entre secciones.
+  useEffect(() => {
+    if (!sessionsEnabled) saveWork('chat-temp', messages);
+  }, [sessionsEnabled, messages]);
 
   const selectSession = useCallback(async (id: string) => {
     setActiveSession(id);

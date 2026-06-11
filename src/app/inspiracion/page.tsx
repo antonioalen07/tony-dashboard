@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import AdaptPanel from '@/components/AdaptPanel';
+import { loadWork, saveWork } from '@/lib/workSession';
 import styles from './page.module.css';
 
 interface Referent {
@@ -96,8 +97,27 @@ export default function InspiracionPage() {
   const [searching, setSearching] = useState(false);
   const [ephemeral, setEphemeral] = useState<BangerVideo[] | null>(null);
   const [ephemeralUser, setEphemeralUser] = useState('');
+  const [hydrated, setHydrated] = useState(false);
 
   const [adaptTarget, setAdaptTarget] = useState<BangerVideo | null>(null);
+
+  // Caché de sesión de trabajo: la búsqueda puntual sobrevive al cambiar de sección.
+  useEffect(() => {
+    const cached = loadWork<{ user: string; results: BangerVideo[] | null; input: string }>('inspiracion', {
+      user: '', results: null, input: '',
+    });
+    if (cached.results && cached.results.length > 0) {
+      setEphemeral(cached.results);
+      setEphemeralUser(cached.user);
+    }
+    if (cached.input) setSearchUser(cached.input);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveWork('inspiracion', { user: ephemeralUser, results: ephemeral, input: searchUser });
+  }, [hydrated, ephemeral, ephemeralUser, searchUser]);
 
   const loadReferents = useCallback(async () => {
     const res = await fetch('/api/referents');
@@ -207,7 +227,11 @@ export default function InspiracionPage() {
   const renderCard = (video: BangerVideo, isEphemeral: boolean) => (
     <article key={video.instagram_id} className={styles.card}>
       <a href={video.post_url} target="_blank" rel="noreferrer" className={styles.coverLink}>
-        <img src={proxied(video.cover_url)} alt="" className={styles.cover} referrerPolicy="no-referrer" loading="lazy" />
+        {video.cover_url ? (
+          <img src={proxied(video.cover_url)} alt="" className={styles.cover} referrerPolicy="no-referrer" loading="lazy" />
+        ) : (
+          <div className={styles.cover} aria-hidden="true" />
+        )}
         <span className={`${styles.scoreBadge} ${styles[scoreTier(video.score)]}`}>{Math.round(video.score)}</span>
       </a>
       <div className={styles.cardBody}>

@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import { X, Sparkles, Copy, Check, Loader2, FileText } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import { loadWork, saveWork } from '@/lib/workSession';
 import type { BangerVideo } from '@/app/inspiracion/page';
 import styles from './AdaptPanel.module.css';
 
 interface Adaptation {
   por_que_viralizo?: string;
   aplicabilidad?: string;
+  etapa_funnel?: string;
+  gancho_visual?: string;
   hook?: string;
   angulo?: string;
   formato?: string;
@@ -28,6 +31,21 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
   const [adaptation, setAdaptation] = useState<Adaptation | null>(video.adaptation || null);
   const [transcript, setTranscript] = useState<string>(video.transcript || '');
   const [copied, setCopied] = useState<string | null>(null);
+
+  // Caché de sesión: si ya se generó el guion de este video (aunque sea efímero
+  // y hayas navegado a otra sección), se recupera sin volver a gastar APIs.
+  useEffect(() => {
+    if (adaptation) return;
+    const cached = loadWork<{ adaptation: Adaptation | null; transcript: string }>(
+      `adapt:${video.instagram_id}`,
+      { adaptation: null, transcript: '' }
+    );
+    if (cached.adaptation) {
+      setAdaptation(cached.adaptation);
+      if (cached.transcript && !transcript) setTranscript(cached.transcript);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.instagram_id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -51,6 +69,8 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
       if (!res.ok || json.error) throw new Error(json.error || 'No se pudo generar la adaptación');
       setAdaptation(json.adaptation);
       if (json.transcript) setTranscript(json.transcript);
+      // Cachear en la sesión de trabajo para no regenerar al navegar entre secciones
+      saveWork(`adapt:${video.instagram_id}`, { adaptation: json.adaptation, transcript: json.transcript || '' });
       if (video.id) onSaved();
       toast('Guion listo 🔥', 'success');
     } catch (e: any) {
@@ -116,11 +136,17 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
           {adaptation && (
             <>
               <Section label="Por qué viralizó" value={adaptation.por_que_viralizo} />
-              {adaptation.aplicabilidad && (
+              {(adaptation.aplicabilidad || adaptation.etapa_funnel) && (
                 <div className={styles.applicability} data-level={adaptation.aplicabilidad}>
-                  Aplicabilidad a tu marca: <strong>{adaptation.aplicabilidad}</strong>
+                  {adaptation.etapa_funnel && (
+                    <>Etapa: <strong>{adaptation.etapa_funnel}</strong>{adaptation.aplicabilidad && ' · '}</>
+                  )}
+                  {adaptation.aplicabilidad && (
+                    <>Aplicabilidad a tu marca: <strong>{adaptation.aplicabilidad}</strong></>
+                  )}
                 </div>
               )}
+              <Section label="Gancho visual" value={adaptation.gancho_visual} />
               <Section label="Hook" value={adaptation.hook} />
               <Section label="Ángulo" value={adaptation.angulo} />
               <Section label="Formato" value={adaptation.formato} />
