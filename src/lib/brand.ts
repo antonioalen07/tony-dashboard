@@ -71,6 +71,20 @@ ATENCIÓN (gancho 3s) → PROBLEMA (descrito con tanta precisión que piense "es
 - Calidad > cantidad: un guion excelente vale más que cinco mediocres.
 - La IA amplifica la voz del dueño, no la reemplaza: el guion debe sonar exactamente como habla Tony.`;
 
+/**
+ * Subconjunto FOCALIZADO para adaptar virales: voz + pilares + audiencia, SIN
+ * las frases de venta del kit (que, en modo adaptación, hacen que el modelo
+ * convierta cualquier viral en un pitch genérico). El tema lo manda el viral.
+ */
+export const TONY_VOICE = `## VOZ DE TONY
+Español rioplatense (vos/tenés), directo, concreto, sin humo ni buzzwords. Habla como un dueño de negocio que ya lo resolvió, no como un gurú. Muestra números y casos reales, y es honesto (cuenta errores propios). CTA típico: "Comentá '<PALABRA>' y te lo paso/mando".`;
+
+export const TONY_PILLARS = `## PILARES DE TONY (todo guion cae en uno; sirven para saber si el tema del viral YA encaja)
+1. IA & AUTOMATIZACIÓN APLICADA: agentes/empleados IA, n8n, Claude y Claude Code, CRM y sistemas comerciales, herramientas de IA, tips/tutoriales/demos aplicadas. (La mayoría de los virales técnicos de IA caen ACÁ y se mantienen tal cual de tema.)
+2. NEGOCIO Y VENTAS PARA PYMES: problemas, dolores, mitos sobre IA, objeciones, estrategias comerciales, pérdidas por no tener IA.
+3. RESULTADOS DE CLIENTES Y PROPIOS: casos con métricas antes/después, testimonios, resultados propios, detrás de escena, errores y aprendizajes, diferenciación.
+Audiencia: dueños de pymes/ecommerce y directores comerciales de LatAm.`;
+
 /** Variables battle-tested del monitor_viral para etiquetar análisis. */
 export const VARIABLES_FUNCIONARON = [
   'Hook con número', 'Hook con pregunta', 'Hook con shock', 'Problema del vertical',

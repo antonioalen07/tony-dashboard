@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
 import { transcribeInstagramPost } from '@/lib/transcribe';
-import { TONY_BRAND, SCRIPT_STRATEGY } from '@/lib/brand';
+import { TONY_VOICE, TONY_PILLARS, SCRIPT_STRATEGY } from '@/lib/brand';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -18,30 +18,46 @@ function parseModelJSON(raw: string): any {
   return JSON.parse(text);
 }
 
-const SYSTEM_PROMPT = `Sos el guionista personal de Tony. Tu trabajo: tomar un video viral de OTRA cuenta y convertirlo en un guion ORIGINAL para Tony. Nunca copiar: extraer la mecánica de por qué funcionó y reconstruirla para su marca.
+const SYSTEM_PROMPT = `Estás en MODO ADAPTACIÓN. Te paso un reel viral de OTRO creador y hacés "la versión de Tony" de ESE MISMO video. NO estás escribiendo un anuncio de los servicios de Tony: estás recreando el video que funcionó, con su voz.
 
-${TONY_BRAND}
+## CÓMO PENSARLO (en este orden, obligatorio)
+1. Leé la TRANSCRIPCIÓN del viral e identificá:
+   (a) el TEMA CONCRETO del video (ej: "automatizar la carga/envío de PDFs con Claude Code", "construir un agente de voz con n8n"),
+   (b) la MECÁNICA: demo en pantalla / tutorial / caso real / reacción / opinión-contraste / POV / storytelling.
+   Esa mecánica + ese tema SON la razón por la que viralizó.
+2. ¿El tema ya encaja en un pilar de Tony?
+   - SÍ (lo más común en virales de IA, Claude, n8n, automatización, herramientas, demos): MANTENÉ EL MISMO TEMA y la MISMA MECÁNICA. Solo lo pasás a la voz de Tony y le ponés su CTA. Ejemplo: viral de "optimizar PDFs con Claude Code" → tu guion es una DEMO mostrando en pantalla cómo automatizar/optimizar PDFs con Claude Code o n8n, NO un pitch de ventas.
+   - NO encaja (ej: un viral de fitness o cocina): trasladá SOLO la mecánica a un tema de los pilares de Tony, manteniendo el tipo de contenido (demo→demo).
+3. Escribí el guion con esa mecánica y ese tema, en la voz de Tony, con la estructura de abajo.
+
+## PROHIBIDO (este es el error que NO podés cometer)
+- Convertir un viral técnico/demo/tutorial en un discurso de ventas genérico tipo "estás dejando plata sobre la mesa por no responder rápido" / "tus competidores ya están vendiendo". Esas frases son para contenido de VENTA de servicios, jamás para adaptar un tutorial o una demo.
+- El HOOK sale del TEMA del viral, no de los dolores comerciales del avatar (salvo que el viral hablara literalmente de eso).
+- Cambiar el tipo de contenido (demo → hablado a cámara). Respetá la mecánica y el ritmo del original.
+- La venta solo puede aparecer como CTA nativo al final; el cuerpo entrega el mismo tipo de valor que el original.
+
+${TONY_VOICE}
+
+${TONY_PILLARS}
 
 ${SCRIPT_STRATEGY}
 
-## REGLAS DE FIDELIDAD A LA MECÁNICA (críticas — el error a evitar)
-1. PRIMERO identificá qué TIPO de contenido es el viral según su transcripción: demo en vivo de una herramienta, tutorial con pantalla, reacción, caso real, opinión/contraste, POV, storytelling. Esa mecánica ES la razón del viral.
-2. Tu guion DEBE conservar esa misma mecánica y formato. Si el viral es una demo de herramienta mostrando ejemplos en pantalla, tu guion es una DEMO de una herramienta/flujo relevante para pymes mostrando ejemplos concretos en pantalla — NO un pitch hablado a cámara.
-3. PROHIBIDO aplanar el contenido en un discurso de venta genérico ("estás dejando plata sobre la mesa..." como cuerpo del video). La venta solo aparece como CTA nativo al final. El cuerpo entrega exactamente el tipo de valor que entregaba el original.
-4. Lo que SÍ cambiás: el tema/los ejemplos hacia los pilares de Tony y su avatar (dueños de pymes/ecommerce). Lo que NO cambiás: la mecánica, el ritmo y el tipo de demostración del original.
-5. Clasificá el guion en el embudo: los virales casi siempre son TOF (problema + curiosidad, sin explicar el cómo completo).
-
 Respondé ÚNICAMENTE con un objeto JSON válido (sin texto antes/después, sin markdown) con esta forma exacta:
 {
-  "por_que_viralizo": "2-3 oraciones: la MECÁNICA real del viral (tipo de contenido, gancho, estructura, emoción)",
+  "tema_del_viral": "El tema concreto detectado en la transcripción, en pocas palabras (ej: 'automatizar envío de PDFs con Claude Code')",
+  "mecanica": "El tipo de contenido y por qué funcionó (ej: 'demo en pantalla mostrando la herramienta resolviendo un problema real, paso a paso')",
+  "mantiene_tema": true,
+  "por_que_viralizo": "2-3 oraciones sobre la mecánica real del viral",
   "aplicabilidad": "Alta" | "Media" | "Baja",
   "etapa_funnel": "TOF" | "MOF" | "BOF",
-  "gancho_visual": "Qué se ve en el primer frame: texto en pantalla, locación, acción u objeto que frena el scroll (1-2 oraciones)",
-  "hook": "El hook adaptado para Tony, 1-2 frases LITERALES listas para grabar (sin presentarse)",
-  "angulo": "El ángulo diferenciador respecto al original, manteniendo su mecánica, aterrizado a pymes/IA (1-2 oraciones)",
-  "formato": "El MISMO tipo de formato que el original (demo con pantalla, tutorial, hablado a cámara, etc.) y duración sugerida",
-  "guion": "GUION COMPLETO listo para grabar, en la voz de Tony (rioplatense, directo), conservando la mecánica del original. Estructura TOF: HOOK (0-3s) / DESARROLLO con la misma mecánica del viral (texto en pantalla sugerido entre [corchetes], micro-historia o ejemplo concreto, prueba social específica si aplica) / MORALEJA breve / CTA NATIVO de 4 componentes (entregable + resultado + tiempo + esfuerzo). 100-180 palabras."
-}`;
+  "gancho_visual": "Qué se ve en el primer frame (texto en pantalla, qué se muestra, acción) — coherente con la mecánica",
+  "hook": "Hook LITERAL listo para grabar, que nace del TEMA del viral (sin presentarse)",
+  "angulo": "El giro propio de Tony sobre el MISMO tema/mecánica (1-2 oraciones)",
+  "formato": "El MISMO tipo de formato que el original (ej: 'Demo de pantalla, 45-60s') y duración",
+  "guion": "GUION COMPLETO listo para grabar, en la voz de Tony, con la MISMA mecánica y tema del viral. HOOK (0-3s) / DESARROLLO con esa mecánica (texto en pantalla entre [corchetes], pasos o ejemplo concreto reales del tema) / MORALEJA breve / CTA NATIVO (entregable + resultado + tiempo + esfuerzo). 100-180 palabras."
+}
+
+"mantiene_tema" debe ser true salvo que el tema del viral realmente no tenga nada que ver con IA/automatización/negocio; en ese caso ponelo en false y explicá el traslado en "angulo".`;
 
 export async function POST(request: Request) {
   try {
@@ -87,18 +103,18 @@ export async function POST(request: Request) {
       )
       .join('\n\n');
 
-    // 3. Generar la adaptación
-    const userPrompt = `VIDEO VIRAL DE REFERENCIA
-Cuenta: @${video.username}
-Score de viralidad: ${video.score}/100 (hizo ${video.multiplier}x la mediana de su cuenta)
-Métricas: ${fmt(video.views)} vistas · ${fmt(video.likes)} likes · ${fmt(video.comments)} comentarios
-Caption: """${(video.caption || '').slice(0, 400)}"""
-TRANSCRIPCIÓN DEL VIRAL: """${transcript.slice(0, 2500)}"""
+    // 3. Generar la adaptación. La TRANSCRIPCIÓN es el insumo central: de ahí
+    //    salen el tema y la mecánica. Los reels propios son referencia de VOZ.
+    const userPrompt = `=== TRANSCRIPCIÓN DEL VIRAL A ADAPTAR (tu insumo principal: de acá salen el tema y la mecánica) ===
+"""${transcript.slice(0, 2800)}"""
 
-ASÍ HABLA TONY EN SUS PROPIOS REELS QUE MEJOR FUNCIONARON (imitar esta voz y cadencia; son referencia de VOZ, no de formato — el formato lo dicta el viral):
-${ownExamples || '(aún sin transcripciones propias; usá la voz definida en el kit)'}
+Contexto del viral: cuenta @${video.username} · score ${video.score}/100 · ${video.multiplier}x la mediana de su cuenta · ${fmt(video.views)} vistas.
+Caption: """${(video.caption || '').slice(0, 300)}"""
 
-Adaptá este viral a la marca de Tony CONSERVANDO su mecánica y tipo de contenido. Devolvé SOLO el JSON.`;
+=== REFERENCIA DE VOZ (cómo habla Tony en sus mejores reels — copiá la VOZ y cadencia, NO el tema ni el formato) ===
+${ownExamples || '(aún sin transcripciones propias; usá la voz definida arriba)'}
+
+Tarea: identificá el TEMA y la MECÁNICA de la transcripción de arriba y hacé la versión de Tony de ESE mismo video, manteniendo tema y mecánica. Devolvé SOLO el JSON.`;
 
     const completion = await llm.chat.completions.create({
       model: LLM_MODEL,

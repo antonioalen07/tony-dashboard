@@ -8,6 +8,9 @@ import type { BangerVideo } from '@/app/inspiracion/page';
 import styles from './AdaptPanel.module.css';
 
 interface Adaptation {
+  tema_del_viral?: string;
+  mecanica?: string;
+  mantiene_tema?: boolean;
   por_que_viralizo?: string;
   aplicabilidad?: string;
   etapa_funnel?: string;
@@ -25,10 +28,17 @@ interface AdaptPanelProps {
 }
 
 export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps) {
+  // Solo se reusa una adaptación si fue generada con el prompt actual
+  // (las nuevas traen "tema_del_viral"); las viejas se descartan y se regeneran.
+  const isCurrent = (a: Adaptation | null | undefined): a is Adaptation =>
+    Boolean(a && a.tema_del_viral);
+
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState('');
-  const [adaptation, setAdaptation] = useState<Adaptation | null>(video.adaptation || null);
+  const [adaptation, setAdaptation] = useState<Adaptation | null>(
+    isCurrent(video.adaptation) ? video.adaptation : null
+  );
   const [transcript, setTranscript] = useState<string>(video.transcript || '');
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -40,9 +50,11 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
       `adapt:${video.instagram_id}`,
       { adaptation: null, transcript: '' }
     );
-    if (cached.adaptation) {
+    if (isCurrent(cached.adaptation)) {
       setAdaptation(cached.adaptation);
       if (cached.transcript && !transcript) setTranscript(cached.transcript);
+    } else if (cached.transcript && !transcript) {
+      setTranscript(cached.transcript); // conservar la transcripción (no re-gastar Apify)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [video.instagram_id]);
@@ -57,7 +69,8 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
     setLoading(true);
     setStep(transcript ? 'Escribiendo tu guion…' : 'Transcribiendo el video (~1 min)…');
     try {
-      const body = video.id ? { id: video.id } : { video };
+      // Para videos efímeros, reusar la transcripción ya obtenida (no re-gastar Apify/STT).
+      const body = video.id ? { id: video.id } : { video: { ...video, transcript: transcript || video.transcript } };
       const timer = setTimeout(() => setStep('Escribiendo tu guion con tu voz y tu kit de marca…'), 60_000);
       const res = await fetch('/api/inspiration/adapt', {
         method: 'POST',
@@ -135,6 +148,16 @@ export default function AdaptPanel({ video, onClose, onSaved }: AdaptPanelProps)
 
           {adaptation && (
             <>
+              {adaptation.tema_del_viral && (
+                <div className={styles.detectedTopic}>
+                  <span className={styles.detectedLabel}>Tema detectado del viral</span>
+                  <span className={styles.detectedValue}>{adaptation.tema_del_viral}</span>
+                  {adaptation.mantiene_tema === false && (
+                    <span className={styles.topicMoved}>tema trasladado a tus pilares</span>
+                  )}
+                </div>
+              )}
+              <Section label="Mecánica" value={adaptation.mecanica} />
               <Section label="Por qué viralizó" value={adaptation.por_que_viralizo} />
               {(adaptation.aplicabilidad || adaptation.etapa_funnel) && (
                 <div className={styles.applicability} data-level={adaptation.aplicabilidad}>

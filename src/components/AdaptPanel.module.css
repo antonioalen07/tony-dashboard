@@ -161,6 +161,36 @@
 
 .applicability strong { color: var(--accent-primary); }
 
+.detectedTopic {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.detectedLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detectedValue {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.topicMoved {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .script {
   background: var(--surface-1);
   border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, var(--surface-border));
