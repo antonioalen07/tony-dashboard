@@ -178,3 +178,25 @@
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
+
+.logoutBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 1rem;
+  padding: 0.6rem 1rem;
+  background: none;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+}
+
+.logoutBtn:hover {
+  color: var(--accent-negative);
+  border-color: color-mix(in srgb, var(--accent-negative) 35%, var(--card-border));
+}

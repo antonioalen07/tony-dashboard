@@ -3,14 +3,22 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Camera, Flame, MessageSquare, Menu, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { LayoutDashboard, Camera, Flame, MessageSquare, Menu, X, LogOut } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import Logo from './Logo';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  const logout = async () => {
+    await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+    router.replace('/login');
+    router.refresh();
+  };
 
   // Cerrar el drawer al navegar
   useEffect(() => {
@@ -24,6 +32,9 @@ export default function Sidebar() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  // En la pantalla de login no se muestra el sidebar.
+  if (pathname === '/login') return null;
 
   const navItems = [
     { label: 'Dashboard', icon: <LayoutDashboard size={18} />, href: '/' },
@@ -76,6 +87,9 @@ export default function Sidebar() {
           <span className={styles.footerLabel}>Tema</span>
           <ThemeToggle />
         </div>
+        <button className={styles.logoutBtn} onClick={logout}>
+          <LogOut size={16} /> Cerrar sesión
+        </button>
       </aside>
     </>
   );
