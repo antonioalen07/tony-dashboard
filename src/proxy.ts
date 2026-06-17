@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { COOKIE_NAME, sessionToken, safeEqual, authConfigured } from '@/lib/auth';
+import { COOKIE_NAME, validTokens, safeEqual, authConfigured } from '@/lib/auth';
 
 // Rutas que NO requieren sesión.
 const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout'];
@@ -13,8 +13,7 @@ export async function proxy(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   const cookie = request.cookies.get(COOKIE_NAME)?.value || '';
-  const expected = await sessionToken();
-  const authed = Boolean(cookie) && safeEqual(cookie, expected);
+  const authed = Boolean(cookie) && (await validTokens()).some((t) => safeEqual(cookie, t));
 
   // Logueado entrando a /login → mandarlo al dashboard
   if (authed && pathname === '/login') {
