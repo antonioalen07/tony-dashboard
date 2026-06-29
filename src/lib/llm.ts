@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 /**
  * Cliente LLM centralizado, agnóstico de proveedor.
  *
- * - Si existe OPENAI_API_KEY  -> usa OpenAI directo (ChatGPT, modelo gpt-4o-mini).
+ * - Si existe OPENAI_API_KEY  -> usa OpenAI directo (ChatGPT, modelo gpt-5.4-mini).
  * - Si no, y existe OPENROUTER_API_KEY -> usa OpenRouter (claude-3.5-haiku).
  *
  * Para cambiar de proveedor NO hay que tocar código: basta con setear la env var
@@ -26,7 +26,7 @@ export const llm = new OpenAI(
 );
 
 export const LLM_MODEL =
-  process.env.LLM_MODEL || (useOpenAI ? 'gpt-4o-mini' : 'anthropic/claude-3.5-haiku');
+  process.env.LLM_MODEL || (useOpenAI ? 'gpt-5.4-mini' : 'anthropic/claude-3.5-haiku');
 
 export const LLM_PROVIDER = useOpenAI ? 'openai' : 'openrouter';
 
