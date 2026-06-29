@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 /**
  * Cliente LLM centralizado, agnóstico de proveedor.
  *
- * - Si existe OPENAI_API_KEY  -> usa OpenAI directo (ChatGPT, modelo gpt-5.4-mini).
+ * - Si existe OPENAI_API_KEY  -> usa OpenAI directo (ChatGPT, modelo gpt-4o-mini).
  * - Si no, y existe OPENROUTER_API_KEY -> usa OpenRouter (claude-3.5-haiku).
  *
  * Para cambiar de proveedor NO hay que tocar código: basta con setear la env var
