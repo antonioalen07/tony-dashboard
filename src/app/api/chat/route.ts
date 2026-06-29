@@ -137,8 +137,7 @@ export async function POST(request: Request) {
 
     const completion = await llm.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0.7,
-      max_tokens: 1200,
+      max_completion_tokens: 1200,,
       messages: convo,
     });
 
