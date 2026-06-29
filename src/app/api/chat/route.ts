@@ -96,7 +96,7 @@ Tenés un dossier con TODOS sus reels reales: métricas, transcripción de audio
 - Fundamentá SIEMPRE en el dossier: nombrá reels por título y justificá con números (vistas, guardados, ER). Guardados y compartidos pesan más que likes.
 - Cuando detectes patrones, sé quirúrgico: qué hook, qué estructura, qué duración, qué tema, qué CTA — y conectalo con las variables que funcionaron/fallaron.
 - Formato escaneable: listas y negritas cuando sumen. Respuestas concretas, no ensayos.
-- Si la pregunta no se puede responder con los datos, decilo y pedí qué falta.;
+- Si la pregunta no se puede responder con los datos, decilo y pedí qué falta.`;
 
 export async function POST(request: Request) {
   try {
