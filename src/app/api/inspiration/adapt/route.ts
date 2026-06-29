@@ -118,7 +118,6 @@ Tarea: identificá el TEMA y la MECÁNICA de la transcripción de arriba y hacé
 
     const completion = await llm.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0.7,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
