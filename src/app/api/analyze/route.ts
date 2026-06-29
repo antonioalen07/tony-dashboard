@@ -78,7 +78,6 @@ export async function POST(request: Request) {
 
     const completion = await llm.chat.completions.create({
       model: LLM_MODEL,
-      temperature: 0.6,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         {
