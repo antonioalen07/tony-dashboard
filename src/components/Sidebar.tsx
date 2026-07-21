@@ -4,7 +4,18 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard, Camera, Flame, MessageSquare, Menu, X, LogOut } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Camera,
+  Flame,
+  MessageSquare,
+  ImagePlay,
+  Clapperboard,
+  CalendarDays,
+  Menu,
+  X,
+  LogOut,
+} from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import Logo from './Logo';
 import styles from './Sidebar.module.css';
@@ -41,6 +52,9 @@ export default function Sidebar() {
     { label: 'Instagram', icon: <Camera size={18} />, href: '/instagram' },
     { label: 'Inspiración', icon: <Flame size={18} />, href: '/inspiracion' },
     { label: 'AI Chat', icon: <MessageSquare size={18} />, href: '/chat' },
+    { label: 'Historias', icon: <ImagePlay size={18} />, href: '/historias' },
+    { label: 'Variantes', icon: <Clapperboard size={18} />, href: '/variantes' },
+    { label: 'Calendario', icon: <CalendarDays size={18} />, href: '/calendario' },
   ];
 
   return (
@@ -71,16 +85,21 @@ export default function Sidebar() {
         </div>
 
         <nav className={styles.nav}>
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`${styles.navItem} ${pathname === item.href ? styles.active : ''}`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const isActive =
+              pathname === item.href ||
+              (item.href !== '/' && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${styles.navItem} ${isActive ? styles.active : ''}`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className={styles.footer}>

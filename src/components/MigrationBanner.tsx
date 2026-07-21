@@ -1,0 +1,35 @@
+'use client';
+
+import { Database, RefreshCw } from 'lucide-react';
+import styles from './MigrationBanner.module.css';
+
+type MigrationBannerProps = {
+  onRetry?: () => void;
+};
+
+export default function MigrationBanner({ onRetry }: MigrationBannerProps) {
+  return (
+    <div className={`glass-panel ${styles.banner}`} role="status">
+      <div className={styles.icon}>
+        <Database size={22} />
+      </div>
+
+      <div className={styles.content}>
+        <h3 className={styles.title}>Falta correr la migración</h3>
+        <p className={styles.text}>
+          Para usar esta sección necesitás ejecutar la migración{' '}
+          <code className={styles.code}>supabase_migration_studio.sql</code> en el{' '}
+          <strong>SQL Editor</strong> de Supabase. Una vez creadas las tablas,
+          volvé a esta pantalla.
+        </p>
+
+        {onRetry && (
+          <button type="button" className={styles.retry} onClick={onRetry}>
+            <RefreshCw size={16} />
+            <span>Reintentar</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
