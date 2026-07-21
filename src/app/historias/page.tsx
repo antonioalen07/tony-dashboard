@@ -10,6 +10,7 @@ import {
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import MigrationBanner from '@/components/MigrationBanner';
+import DrivePicker from '@/components/DrivePicker';
 import { renderSlideToPng, proxied, STORY_FONTS } from '@/lib/storyRender';
 import type { StoryProject, StorySlide, StoryTextLayer, MediaAsset, TextAlign } from '@/lib/studio-types';
 import styles from './page.module.css';
@@ -536,6 +537,13 @@ export default function HistoriasPage() {
                     </div>
                   </>
                 )}
+                <p className={styles.pickerLabel}>O importá desde Google Drive:</p>
+                <DrivePicker
+                  onPicked={(a) => {
+                    setAssets((prev) => (prev.some((x) => x.id === a.id) ? prev : [a, ...prev]));
+                    pickAsset(a);
+                  }}
+                />
               </div>
 
               {/* Capas */}
