@@ -116,7 +116,23 @@ export async function POST(request: Request) {
       .order('views', { ascending: false });
     if (error) throw new Error(error.message);
 
-    const filtered = (reels || []).filter((r) => (r.instagram_id || '').length < 19);
+    const metaReels = (reels || []).filter((r) => (r.instagram_id || '').length < 19);
+
+    // Umbral de rendimiento: por debajo de esto un reel no aporta señal y solo gasta
+    // tokens. NO se manda al modelo (pero se sigue transcribiendo/analizando igual en
+    // /sync y /analyze). Configurable con CHAT_MIN_VIEWS en .env.local.
+    const MIN_VIEWS = Number(process.env.CHAT_MIN_VIEWS ?? 800);
+
+    let filtered = metaReels.filter((r) => Number(r.views ?? 0) >= MIN_VIEWS);
+    let excluidos = metaReels.length - filtered.length;
+
+    // Salvavidas: si el umbral deja el dossier vacío (cuenta nueva o umbral muy alto),
+    // mandamos igual el top por vistas para no dejar a la IA a ciegas.
+    if (filtered.length === 0 && metaReels.length > 0) {
+      filtered = metaReels.slice(0, 10); // ya vienen ordenados por vistas desc
+      excluidos = metaReels.length - filtered.length;
+    }
+
     const context = buildContext(filtered);
 
     const transcritos = filtered.filter((r) => r.transcript && r.transcript.trim()).length;
@@ -125,7 +141,7 @@ export async function POST(request: Request) {
       { role: 'system', content: SYSTEM_PROMPT },
       {
         role: 'system',
-        content: `DOSSIER DE CONTENIDO (${filtered.length} reels, ${transcritos} con transcripción):\n\n${context}`,
+        content: `DOSSIER DE CONTENIDO (${filtered.length} reels con ≥${MIN_VIEWS} vistas${excluidos ? `; ${excluidos} de bajo rendimiento excluidos por no superar el umbral` : ''}; ${transcritos} con transcripción).\nEl umbral de ${MIN_VIEWS} vistas es el piso de "esto funcionó": todo lo que aparece acá ya pasó esa barra. Los reels por debajo se consideran fallidos y no se incluyen.\n\n${context}`,
       },
       ...messages.map(
         (m: any): OpenAI.Chat.Completions.ChatCompletionMessageParam =>
@@ -142,7 +158,7 @@ export async function POST(request: Request) {
     });
 
     const reply = completion.choices?.[0]?.message?.content || '';
-    return NextResponse.json({ reply, stats: { reels: filtered.length, transcritos } });
+    return NextResponse.json({ reply, stats: { reels: filtered.length, transcritos, excluidos, minViews: MIN_VIEWS } });
   } catch (error: any) {
     console.error('Chat Error:', error);
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
