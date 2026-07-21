@@ -34,6 +34,11 @@ yarn-error.log*
 .env*
 !.env.example
 
+# secretos sueltos (nunca commitear)
+Google.txt
+client_secret*.json
+*.credentials.json
+
 # local logs / tooling
 *.log
 .claude/
