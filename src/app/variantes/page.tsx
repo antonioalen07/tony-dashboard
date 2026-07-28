@@ -194,7 +194,13 @@ export default function VariantesPage() {
         .from('studio')
         .upload(path, file, { contentType: file.type || 'video/mp4', upsert: false });
       if (upErr) {
-        toast(`Error al subir: ${upErr.message}`, 'error');
+        const sizeIssue = /exceed|maximum allowed size|payload too large|413/i.test(upErr.message);
+        toast(
+          sizeIssue
+            ? 'El video supera el límite de Storage. Subí el "Upload file size limit" del proyecto en Supabase (Settings → Storage) o pegá una URL pública.'
+            : `Error al subir: ${upErr.message}`,
+          'error',
+        );
         return;
       }
       const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
