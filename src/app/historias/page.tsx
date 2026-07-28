@@ -110,6 +110,43 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Redimensiona/comprime una imagen en el navegador antes de subirla, para que
+ * las fotos de celular (10-25MB) no choquen con el límite del API. Para stories
+ * alcanza ~2160px. Conserva PNG (transparencia) o pasa a JPEG el resto.
+ * Si no se puede decodificar (p.ej. HEIC) o queda más grande, devuelve el original.
+ */
+async function compressImage(file: File, maxDim = 2160, quality = 0.85): Promise<File> {
+  if (file.size <= 1_500_000) return file; // ya es chica: no toca
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImg(url);
+    const longest = Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = Math.min(1, maxDim / (longest || 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, w, h);
+    const isPng = /png/i.test(file.type);
+    const type = isPng ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise<Blob | null>((res) =>
+      canvas.toBlob(res, type, isPng ? undefined : quality),
+    );
+    if (!blob || blob.size >= file.size) return file; // no mejoró: original
+    const ext = isPng ? 'png' : 'jpg';
+    const base = file.name.replace(/\.[^.]+$/, '') || 'imagen';
+    return new File([blob], `${base}.${ext}`, { type });
+  } catch {
+    return file; // no se pudo decodificar: intenta con el original
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function HistoriasPage() {
   const { toast } = useToast();
 
@@ -391,8 +428,9 @@ export default function HistoriasPage() {
 
   /** Sube un archivo de imagen a /api/assets y lo agrega a la biblioteca. */
   const uploadImageFile = async (file: File): Promise<MediaAsset | null> => {
+    const compressed = await compressImage(file);
     const fd = new FormData();
-    fd.append('file', file);
+    fd.append('file', compressed);
     fd.append('kind', 'image');
     try {
       const res = await fetch('/api/assets', { method: 'POST', body: fd });
@@ -409,7 +447,7 @@ export default function HistoriasPage() {
       const asset: MediaAsset = {
         id: j.id,
         kind: 'image',
-        filename: file.name,
+        filename: compressed.name,
         storage_path: j.storage_path,
         public_url: j.public_url,
         source: 'upload',
