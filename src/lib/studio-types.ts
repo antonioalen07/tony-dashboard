@@ -40,6 +40,8 @@ export interface StoryTextLayer {
   widthPct?: number | null;
   /** Palabras concretas a subrayar (además del subrayado de toda la capa). Case-insensitive. */
   underlineWords?: string[];
+  /** Palabras concretas a resaltar (usa el color de `highlight`). Si está vacío y hay `highlight`, se resalta toda la capa. Case-insensitive. */
+  highlightWords?: string[];
 }
 
 /** Imagen superpuesta sobre un slide (sticker/recorte). Centro en x/y (0..1). */

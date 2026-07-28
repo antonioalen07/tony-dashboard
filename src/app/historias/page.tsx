@@ -48,6 +48,7 @@ const newLayer = (): StoryTextLayer => ({
   lineHeight: 1.25,
   widthPct: null,
   underlineWords: [],
+  highlightWords: [],
 });
 
 const newSlide = (): EditableSlide => ({
@@ -514,24 +515,37 @@ export default function HistoriasPage() {
     { v: 'justify', icon: <AlignJustify size={15} />, title: 'Justificado' },
   ];
 
-  /** Texto de una capa para el preview: respeta \n y subraya palabras concretas. */
+  /** Texto de una capa para el preview: respeta \n y subraya/resalta palabras concretas. */
   const renderLayerText = (l: StoryTextLayer): React.ReactNode => {
-    const set = new Set((l.underlineWords ?? []).map(cleanWord).filter(Boolean));
+    const uSet = new Set((l.underlineWords ?? []).map(cleanWord).filter(Boolean));
+    const hSet = new Set((l.highlightWords ?? []).map(cleanWord).filter(Boolean));
     const lines = (l.text || ' ').split('\n');
     return lines.map((line, li) => {
-      if (!set.size) return <span key={li} className={styles.textLine}>{line || ' '}</span>;
+      if (!uSet.size && !hSet.size) return <span key={li} className={styles.textLine}>{line || ' '}</span>;
       const words = line.split(' ');
       return (
         <span key={li} className={styles.textLine}>
-          {words.map((word, wi) => (
-            <span
-              key={wi}
-              style={word && set.has(cleanWord(word)) ? { textDecoration: 'underline' } : undefined}
-            >
-              {word}
-              {wi < words.length - 1 ? ' ' : ''}
-            </span>
-          ))}
+          {words.flatMap((word, wi) => {
+            const clean = cleanWord(word);
+            const u = !!word && uSet.has(clean);
+            const h = !!word && !!l.highlight && hSet.has(clean);
+            const wordSpan = (
+              <span
+                key={`w${wi}`}
+                style={{
+                  textDecoration: u ? 'underline' : undefined,
+                  background: h ? l.highlight! : undefined,
+                  padding: h ? '0 0.12em' : undefined,
+                  borderRadius: h ? '3px' : undefined,
+                }}
+              >
+                {word}
+              </span>
+            );
+            return wi < words.length - 1
+              ? [wordSpan, <span key={`s${wi}`}> </span>]
+              : [wordSpan];
+          })}
         </span>
       );
     });
@@ -729,8 +743,8 @@ export default function HistoriasPage() {
                       color: l.color,
                       textAlign: l.align,
                       textDecoration: l.underline ? 'underline' : 'none',
-                      background: l.highlight ?? 'transparent',
-                      padding: l.highlight ? `${l.size * SCALE * 0.1}px ${l.size * SCALE * 0.18}px` : 0,
+                      background: l.highlight && !(l.highlightWords?.length) ? l.highlight : 'transparent',
+                      padding: l.highlight && !(l.highlightWords?.length) ? `${l.size * SCALE * 0.1}px ${l.size * SCALE * 0.18}px` : 0,
                       lineHeight: l.lineHeight ?? 1.25,
                       pointerEvents: mode === 'draw' ? 'none' : 'auto',
                       whiteSpace: l.widthPct ? 'normal' : 'pre',
@@ -1032,7 +1046,7 @@ export default function HistoriasPage() {
                         />
                       </label>
                       <label className={styles.control}>
-                        <span>Resaltado</span>
+                        <span>Resaltado (toda la capa)</span>
                         <div className={styles.highlightRow}>
                           <input
                             type="color"
@@ -1106,6 +1120,26 @@ export default function HistoriasPage() {
                           })
                         }
                         placeholder="ej. gratis, hoy, ahora"
+                      />
+                    </label>
+
+                    <label className={styles.control}>
+                      <span><Highlighter size={12} /> Resaltar palabras concretas (usa el color de resaltado)</span>
+                      <input
+                        className={styles.textInput}
+                        value={(selectedLayer.highlightWords ?? []).join(', ')}
+                        onChange={(e) => {
+                          const words = e.target.value
+                            .split(',')
+                            .map((w) => w.trim())
+                            .filter(Boolean);
+                          setLayer({
+                            highlightWords: words,
+                            // si resaltás palabras sin color de resaltado activo, activá uno por defecto
+                            highlight: words.length && !selectedLayer.highlight ? '#ffe600' : selectedLayer.highlight,
+                          });
+                        }}
+                        placeholder="ej. gratis, ahora"
                       />
                     </label>
 

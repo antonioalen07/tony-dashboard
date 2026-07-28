@@ -118,12 +118,15 @@ function drawWords(
   y: number,
   extraGap: number,
   underlineSet: Set<string>,
+  highlightSet: Set<string>,
   layer: StoryTextLayer,
 ): void {
   const size = layer.size;
   const spaceWidth = ctx.measureText(' ').width;
   const uy = y + size * 1.04;
   const uw = Math.max(2, size * 0.06);
+  const hlPadX = size * 0.14;
+  const hlPadY = size * 0.08;
   ctx.textAlign = 'left';
 
   let x = startX;
@@ -133,9 +136,15 @@ function drawWords(
       continue;
     }
     const w = ctx.measureText(word).width;
+    const clean = cleanWord(word);
+    // Resaltado por palabra (rectángulo detrás de la palabra).
+    if (layer.highlight && highlightSet.size && highlightSet.has(clean)) {
+      ctx.fillStyle = layer.highlight;
+      ctx.fillRect(x - hlPadX, y - hlPadY, w + hlPadX * 2, size + hlPadY * 2);
+    }
     ctx.fillStyle = layer.color;
     ctx.fillText(word, x, y);
-    if (!layer.underline && underlineSet.size && underlineSet.has(cleanWord(word))) {
+    if (!layer.underline && underlineSet.size && underlineSet.has(clean)) {
       ctx.strokeStyle = layer.color;
       ctx.lineWidth = uw;
       ctx.beginPath();
@@ -158,6 +167,7 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
   const anchorY = layer.y * CANVAS_H;
   const lines = wrapLines(ctx, layer.text || '', maxWidth);
   const underlineSet = new Set((layer.underlineWords ?? []).map(cleanWord).filter(Boolean));
+  const highlightSet = new Set((layer.highlightWords ?? []).map(cleanWord).filter(Boolean));
   const padX = size * 0.18;
   const padY = size * 0.1;
 
@@ -181,14 +191,14 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
       if (gaps > 0) extraGap = Math.max(0, (maxWidth - naturalWidth) / gaps);
     }
 
-    // Resaltado (fondo) detrás de la línea.
-    if (layer.highlight && line.trim()) {
+    // Resaltado de toda la línea (solo si NO hay resaltado por palabra).
+    if (layer.highlight && !highlightSet.size && line.trim()) {
       const hlW = justify ? maxWidth : naturalWidth;
       ctx.fillStyle = layer.highlight;
       ctx.fillRect(left - padX, y - padY, hlW + padX * 2, size + padY * 2);
     }
 
-    drawWords(ctx, line, left, y, extraGap, underlineSet, layer);
+    drawWords(ctx, line, left, y, extraGap, underlineSet, highlightSet, layer);
 
     // Subrayado de toda la capa (toda la línea).
     if (layer.underline && line.trim()) {
