@@ -1,0 +1,19 @@
+{
+  "name": "crevy-studio-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Worker del VPS de Crevy Studio: procesa jobs (motor de variantes de video). Sin puerto HTTP.",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "ffmpeg-static": "^5.2.0"
+  }
+}

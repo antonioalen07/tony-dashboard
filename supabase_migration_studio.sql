@@ -123,9 +123,12 @@ END $$;
 -- 8) Storage: bucket público "studio" + políticas anon sobre sus objetos
 --    (video_url para la Graph API debe ser una URL pública -> bucket público)
 -- ----------------------------------------------------------------------------
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('studio', 'studio', true)
-ON CONFLICT (id) DO UPDATE SET public = true;
+-- file_size_limit del bucket: 500MB (sin esto, usa el límite GLOBAL del proyecto,
+-- por defecto 50MB, que rechaza los videos). OJO: el límite global del dashboard
+-- (Settings → Storage → "Upload file size limit") igual actúa como techo del plan.
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('studio', 'studio', true, 524288000)
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 524288000;
 
 DO $$
 BEGIN
