@@ -83,7 +83,9 @@ export function buildAuthUrl(state?: string): string {
     scope: DRIVE_SCOPE,
     access_type: 'offline',
     prompt: 'consent',
-    include_granted_scopes: 'true',
+    // NO usar include_granted_scopes: este client_id ya tiene permisos de YouTube
+    // otorgados (proyecto n8n) y Google no permite combinar Drive + YouTube en una
+    // sola solicitud → error 400 invalid_request. Pedimos solo drive.readonly.
   });
   if (state) params.set('state', state);
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
