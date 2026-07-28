@@ -469,6 +469,8 @@
 
 /* ---- Dibujo y overlays sobre el lienzo ---- */
 .previewDraw { cursor: crosshair; }
+.previewPan { cursor: grab; }
+.previewPan:active { cursor: grabbing; }
 .drawSvg {
   position: absolute;
   inset: 0;

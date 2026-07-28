@@ -70,6 +70,11 @@ export interface StorySlide {
   bg_asset_id: string | null;
   /** Brillo del fondo: 1 = normal, <1 más oscuro, >1 más claro. */
   bg_brightness?: number;
+  /** Zoom del fondo dentro del encuadre (>=1, default 1). */
+  bg_scale?: number;
+  /** Desplazamiento del fondo como fracción del lienzo (default 0). Rango útil ±(scale-1)/2. */
+  bg_pan_x?: number;
+  bg_pan_y?: number;
   layers: StoryTextLayer[];
   /** Imágenes superpuestas (se dibujan sobre el fondo, debajo del texto). */
   overlays?: StoryImageOverlay[];

@@ -176,44 +176,50 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
   const padX = size * 0.18;
   const padY = size * 0.1;
 
+  // La caja se ancla por su CENTRO en anchorX; la alineación acomoda el texto
+  // DENTRO de la caja (no mueve el bloque al lado opuesto).
+  const boxW = maxWidth || Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+  const boxLeft = anchorX - boxW / 2;
+
   lines.forEach((line, i) => {
     const y = anchorY + i * lh;
     const isLast = i === lines.length - 1;
-    const naturalWidth = ctx.measureText(line).width;
-    const boxW = maxWidth || naturalWidth;
-    const justify = layer.align === 'justify' && !isLast && maxWidth > 0;
+    const lineWidth = ctx.measureText(line).width;
+    const justify = layer.align === 'justify' && !isLast && boxW - lineWidth > 1;
 
-    // Borde izquierdo de la caja según alineación.
-    let left: number;
-    if (layer.align === 'right') left = anchorX - boxW;
-    else if (layer.align === 'center') left = anchorX - boxW / 2;
-    else left = anchorX; // left y justify anclan a la izquierda
+    // Inicio del texto dentro de la caja según alineación.
+    let startX: number;
+    if (layer.align === 'right') startX = boxLeft + (boxW - lineWidth);
+    else if (layer.align === 'center') startX = boxLeft + (boxW - lineWidth) / 2;
+    else startX = boxLeft; // left y justify arrancan a la izquierda de la caja
 
     // Reparte el espacio sobrante entre palabras cuando se justifica.
     let extraGap = 0;
     if (justify) {
       const gaps = line.split(' ').filter((w) => w !== '').length - 1;
-      if (gaps > 0) extraGap = Math.max(0, (maxWidth - naturalWidth) / gaps);
+      if (gaps > 0) extraGap = Math.max(0, (boxW - lineWidth) / gaps);
     }
 
     // Resaltado de toda la línea (solo si NO hay resaltado por palabra).
     if (layer.highlight && !highlightSet.size && line.trim()) {
-      const hlW = justify ? maxWidth : naturalWidth;
+      const hlLeft = justify ? boxLeft : startX;
+      const hlW = justify ? boxW : lineWidth;
       ctx.fillStyle = layer.highlight;
-      ctx.fillRect(left - padX, y - padY, hlW + padX * 2, size + padY * 2);
+      ctx.fillRect(hlLeft - padX, y - padY, hlW + padX * 2, size + padY * 2);
     }
 
-    drawWords(ctx, line, left, y, extraGap, underlineSet, highlightSet, layer);
+    drawWords(ctx, line, startX, y, extraGap, underlineSet, highlightSet, layer);
 
     // Subrayado de toda la capa (toda la línea).
     if (layer.underline && line.trim()) {
       const uy = y + size * 1.04;
-      const uw = justify ? maxWidth : naturalWidth;
+      const uLeft = justify ? boxLeft : startX;
+      const uW = justify ? boxW : lineWidth;
       ctx.strokeStyle = layer.color;
       ctx.lineWidth = Math.max(2, size * 0.06);
       ctx.beginPath();
-      ctx.moveTo(left, uy);
-      ctx.lineTo(left + uw, uy);
+      ctx.moveTo(uLeft, uy);
+      ctx.lineTo(uLeft + uW, uy);
       ctx.stroke();
     }
   });
@@ -346,9 +352,17 @@ export async function renderSlideToCanvas(
     try {
       const img = await loadImage(proxied(bgUrl));
       const brightness = slide.bg_brightness ?? 1;
+      const s = slide.bg_scale ?? 1;
+      const panX = slide.bg_pan_x ?? 0;
+      const panY = slide.bg_pan_y ?? 0;
+      ctx.save();
       if (brightness !== 1) ctx.filter = `brightness(${brightness})`;
+      // zoom + desplazamiento respecto del centro (mismo modelo que el preview CSS).
+      ctx.translate(CANVAS_W / 2 + panX * CANVAS_W, CANVAS_H / 2 + panY * CANVAS_H);
+      ctx.scale(s, s);
+      ctx.translate(-CANVAS_W / 2, -CANVAS_H / 2);
       drawCover(ctx, img);
-      ctx.filter = 'none';
+      ctx.restore();
     } catch {
       /* mantiene el fondo base si la imagen no carga */
     }

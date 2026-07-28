@@ -176,42 +176,38 @@ export default function VariantesPage() {
     return data as MediaAsset;
   }, [toast]);
 
+  const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300 MB (mismo límite que /api/assets)
+
   const handleFile = async (file: File) => {
     if (!file) return;
     if (migrationNeeded) { toast('Ejecutá la migración del Studio primero', 'error'); return; }
+    if (file.size > MAX_VIDEO_BYTES) {
+      toast('El video supera 300MB. Comprimilo o pegá una URL pública.', 'error');
+      return;
+    }
     setUploading(true);
     try {
-      // Primario: POST /api/assets (Unidad 2). Si no está disponible, fallback directo.
-      let asset: MediaAsset | null = null;
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('kind', 'video');
-        const res = await fetch('/api/assets', { method: 'POST', body: fd });
-        if (res.ok) {
-          const j = await res.json();
-          if (j?.asset) asset = j.asset as MediaAsset;
-        }
-      } catch { /* fallback abajo */ }
-
-      // Fallback: subir directo al bucket público 'studio' + insertar media_asset.
-      if (!asset) {
-        const path = `uploads/${Date.now()}-${sanitize(file.name)}`;
-        const { error: upErr } = await supabase.storage
-          .from('studio')
-          .upload(path, file, { contentType: file.type || 'video/mp4', upsert: false });
-        if (upErr) { toast(`Error al subir: ${upErr.message}`, 'error'); return; }
-        const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
-        asset = await insertAsset({
-          kind: 'video', filename: file.name, storage_path: path,
-          public_url: pub.publicUrl, source: 'upload',
-        });
+      // Subida DIRECTA cliente → Supabase Storage: evita bufferear el archivo en el
+      // server de Next (que colgaba con videos grandes) y es más confiable.
+      const path = `uploads/${Date.now()}-${sanitize(file.name)}`;
+      const { error: upErr } = await supabase.storage
+        .from('studio')
+        .upload(path, file, { contentType: file.type || 'video/mp4', upsert: false });
+      if (upErr) {
+        toast(`Error al subir: ${upErr.message}`, 'error');
+        return;
       }
-
+      const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
+      const asset = await insertAsset({
+        kind: 'video', filename: file.name, storage_path: path,
+        public_url: pub.publicUrl, source: 'upload',
+      });
       if (asset) {
         setSelectedAsset(asset);
         toast('Video base listo', 'success');
       }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo subir el video', 'error');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -591,10 +587,18 @@ export default function VariantesPage() {
           )}
 
           {jobRunning && variants.length === 0 && !stalled && (
-            <div className={styles.scanStatus}>
-              <Loader2 size={14} className={styles.spin} />
-              Esperando al worker de re-edición… ({variants.length}/{job?.num_variants ?? numVariants})
-            </div>
+            <>
+              <div className={styles.scanStatus}>
+                <Loader2 size={14} className={styles.spin} />
+                Esperando al worker de re-edición… ({variants.length}/{job?.num_variants ?? numVariants})
+              </div>
+              <div className={styles.errorBox} style={{ background: 'transparent' }}>
+                <AlertCircle size={15} />
+                Las variantes las genera el <strong>worker</strong> (ffmpeg), que corre aparte. Si no lo
+                tenés desplegado en el VPS o corriendo local (<code>cd worker &amp;&amp; node index.mjs</code>
+                con el <code>.env</code>), el job queda en cola y esto no avanza.
+              </div>
+            </>
           )}
 
           {stalled && variants.length === 0 && (

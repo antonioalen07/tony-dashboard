@@ -55,12 +55,19 @@ const newSlide = (): EditableSlide => ({
   bg_asset_id: null,
   bg_url: null,
   bg_brightness: 1,
+  bg_scale: 1,
+  bg_pan_x: 0,
+  bg_pan_y: 0,
   layers: [],
   overlays: [],
   strokes: [],
 });
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** Clave del borrador autosave en localStorage. */
+const DRAFT_KEY = 'crevy_historias_draft_v1';
 
 /** Normaliza una palabra para comparar contra la lista de subrayado. */
 const cleanWord = (w: string) =>
@@ -132,14 +139,27 @@ export default function HistoriasPage() {
   const liveRef = useRef<StoryDrawStroke | null>(null);
   const [showOverlayPicker, setShowOverlayPicker] = useState(false);
 
+  // Texto crudo de los campos de palabras (para no comerse las comas al tipear).
+  const [uwText, setUwText] = useState('');
+  const [hwText, setHwText] = useState('');
+
   const previewRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ kind: 'layer' | 'overlay'; idx: number } | null>(null);
+  const bgDragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const bgFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
 
   const current = slides[slideIdx];
   const selectedLayer = layerIdx != null ? current?.layers[layerIdx] : undefined;
   const selectedOverlay = overlayIdx != null ? current?.overlays?.[overlayIdx] : undefined;
+
+  // Recarga el texto crudo de los campos de palabras al cambiar la capa seleccionada
+  // (solo al cambiar de capa/slide, no en cada edición, para no comerse las comas).
+  useEffect(() => {
+    setUwText((current?.layers[layerIdx ?? -1]?.underlineWords ?? []).join(', '));
+    setHwText((current?.layers[layerIdx ?? -1]?.highlightWords ?? []).join(', '));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerIdx, slideIdx]);
 
   // ── Carga inicial ──────────────────────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -173,6 +193,47 @@ export default function HistoriasPage() {
     loadProjects();
     loadAssets();
   }, [loadProjects, loadAssets]);
+
+  // ── Autosave local (borrador anti-cierre accidental) ─────────────────────
+  // Guarda el estado de edición con debounce; se limpia al Guardar de verdad.
+  useEffect(() => {
+    if (!projectId) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({ projectId, name, slides, ts: Date.now() }),
+        );
+      } catch {
+        /* localStorage lleno o no disponible: no bloquea la edición */
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [projectId, name, slides]);
+
+  // Restaura un borrador sin guardar al volver a la página (una sola vez).
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || loading) return;
+    restoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft?.projectId && Array.isArray(draft.slides) && projects.some((p) => p.id === draft.projectId)) {
+        setProjectId(draft.projectId);
+        setName(draft.name ?? '');
+        setSlides(draft.slides as EditableSlide[]);
+        setSlideIdx(0);
+        setLayerIdx(null);
+        setOverlayIdx(null);
+        toast('Restauramos tu borrador sin guardar', 'info');
+      }
+    } catch {
+      /* borrador corrupto: se ignora */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, projects]);
 
   // ── Mutaciones de estado del editor ─────────────────────────────────────
   const patchSlide = (idx: number, patch: Partial<EditableSlide>) =>
@@ -258,6 +319,7 @@ export default function HistoriasPage() {
       return;
     }
     toast('Guardado', 'success');
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* no-op */ }
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, name: name.trim(), slides } : p)),
     );
@@ -270,6 +332,7 @@ export default function HistoriasPage() {
       setProjectId(null);
       setSlides([]);
       setName('');
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* no-op */ }
     }
     toast('Proyecto eliminado', 'info');
   };
@@ -470,11 +533,25 @@ export default function HistoriasPage() {
   };
 
   const onPreviewPointerDown = (e: React.PointerEvent) => {
-    if (mode !== 'draw' || !previewRef.current) return;
-    previewRef.current.setPointerCapture?.(e.pointerId);
-    const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, points: [previewPoint(e)] };
-    liveRef.current = stroke;
-    setLiveStroke(stroke);
+    if (!previewRef.current) return;
+    if (mode === 'draw') {
+      previewRef.current.setPointerCapture?.(e.pointerId);
+      const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, points: [previewPoint(e)] };
+      liveRef.current = stroke;
+      setLiveStroke(stroke);
+      return;
+    }
+    // Select mode: si el toque cae en el fondo (no en capa/overlay, que hacen stopPropagation),
+    // arranca el reencuadre del fondo arrastrando.
+    if (resolveBg(current)) {
+      previewRef.current.setPointerCapture?.(e.pointerId);
+      bgDragRef.current = {
+        sx: e.clientX,
+        sy: e.clientY,
+        px: current.bg_pan_x ?? 0,
+        py: current.bg_pan_y ?? 0,
+      };
+    }
   };
 
   const onPreviewPointerMove = (e: React.PointerEvent) => {
@@ -483,6 +560,18 @@ export default function HistoriasPage() {
       const next = { ...liveRef.current, points: [...liveRef.current.points, previewPoint(e)] };
       liveRef.current = next;
       setLiveStroke(next);
+      return;
+    }
+    if (bgDragRef.current && previewRef.current) {
+      const rect = previewRef.current.getBoundingClientRect();
+      const s = current.bg_scale ?? 1;
+      const range = Math.max(0, (s - 1) / 2);
+      const dx = (e.clientX - bgDragRef.current.sx) / rect.width;
+      const dy = (e.clientY - bgDragRef.current.sy) / rect.height;
+      patchSlide(slideIdx, {
+        bg_pan_x: clamp(bgDragRef.current.px + dx, -range, range),
+        bg_pan_y: clamp(bgDragRef.current.py + dy, -range, range),
+      });
       return;
     }
     const d = dragRef.current;
@@ -500,8 +589,53 @@ export default function HistoriasPage() {
       patchSlide(slideIdx, { strokes: [...(current.strokes ?? []), committed] });
       return;
     }
+    bgDragRef.current = null;
     dragRef.current = null;
   };
+
+  // Rueda del mouse sobre el lienzo: zoom del overlay seleccionado, o del fondo.
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (mode !== 'select') return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      if (overlayIdx != null) {
+        setSlides((prev) =>
+          prev.map((s, i) =>
+            i === slideIdx
+              ? {
+                  ...s,
+                  overlays: (s.overlays ?? []).map((o, j) => {
+                    if (j !== overlayIdx) return o;
+                    const w = clamp(o.w * factor, 0.05, 1.5);
+                    const f = o.w ? w / o.w : 1;
+                    return { ...o, w, h: o.h * f };
+                  }),
+                }
+              : s,
+          ),
+        );
+      } else {
+        setSlides((prev) =>
+          prev.map((s, i) => {
+            if (i !== slideIdx || !(s.bg_asset_id || (s as EditableSlide).bg_url)) return s;
+            const ns = clamp((s.bg_scale ?? 1) * factor, 1, 4);
+            const range = Math.max(0, (ns - 1) / 2);
+            return {
+              ...s,
+              bg_scale: ns,
+              bg_pan_x: clamp(s.bg_pan_x ?? 0, -range, range),
+              bg_pan_y: clamp(s.bg_pan_y ?? 0, -range, range),
+            };
+          }),
+        );
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [mode, overlayIdx, slideIdx]);
 
   const undoStroke = () =>
     patchSlide(slideIdx, { strokes: (current.strokes ?? []).slice(0, -1) });
@@ -569,9 +703,6 @@ export default function HistoriasPage() {
       );
     });
   };
-
-  const layerAnchorTransform = (align: TextAlign) =>
-    align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none';
 
   const bright = current?.bg_brightness ?? 1;
 
@@ -712,7 +843,7 @@ export default function HistoriasPage() {
 
               <div
                 ref={previewRef}
-                className={`${styles.preview} ${mode === 'draw' ? styles.previewDraw : ''}`}
+                className={`${styles.preview} ${mode === 'draw' ? styles.previewDraw : resolveBg(current) ? styles.previewPan : ''}`}
                 style={{ width: PREVIEW_W, height: PREVIEW_H }}
                 onPointerDown={onPreviewPointerDown}
                 onPointerMove={onPreviewPointerMove}
@@ -725,7 +856,11 @@ export default function HistoriasPage() {
                     src={proxied(resolveBg(current), PREVIEW_W, Math.round(PREVIEW_H))}
                     alt=""
                     className={styles.previewBg}
-                    style={{ filter: bright !== 1 ? `brightness(${bright})` : undefined }}
+                    style={{
+                      filter: bright !== 1 ? `brightness(${bright})` : undefined,
+                      transform: `translate(${(current.bg_pan_x ?? 0) * 100}%, ${(current.bg_pan_y ?? 0) * 100}%) scale(${current.bg_scale ?? 1})`,
+                      transformOrigin: 'center',
+                    }}
                     referrerPolicy="no-referrer"
                     draggable={false}
                   />
@@ -770,7 +905,7 @@ export default function HistoriasPage() {
                     style={{
                       left: `${l.x * 100}%`,
                       top: `${l.y * 100}%`,
-                      transform: layerAnchorTransform(l.align),
+                      transform: 'translateX(-50%)',
                       width: l.widthPct ? l.widthPct * PREVIEW_W : 'max-content',
                       fontFamily: `"${l.font}", sans-serif`,
                       fontSize: l.size * SCALE,
@@ -842,6 +977,10 @@ export default function HistoriasPage() {
                   })}
                 </svg>
               </div>
+
+              {mode === 'select' && resolveBg(current) && (
+                <p className={styles.hint}>Arrastrá el fondo para reencuadrarlo · rueda del mouse para acercar/alejar</p>
+              )}
 
               <div className={styles.slideStrip}>
                 {slides.map((s, i) => (
@@ -1219,15 +1358,13 @@ export default function HistoriasPage() {
                       <span><Underline size={12} /> Subrayar palabras concretas (separadas por coma)</span>
                       <input
                         className={styles.textInput}
-                        value={(selectedLayer.underlineWords ?? []).join(', ')}
-                        onChange={(e) =>
+                        value={uwText}
+                        onChange={(e) => {
+                          setUwText(e.target.value);
                           setLayer({
-                            underlineWords: e.target.value
-                              .split(',')
-                              .map((w) => w.trim())
-                              .filter(Boolean),
-                          })
-                        }
+                            underlineWords: e.target.value.split(',').map((w) => w.trim()).filter(Boolean),
+                          });
+                        }}
                         placeholder="ej. gratis, hoy, ahora"
                       />
                     </label>
@@ -1236,12 +1373,10 @@ export default function HistoriasPage() {
                       <span><Highlighter size={12} /> Resaltar palabras concretas (usa el color de resaltado)</span>
                       <input
                         className={styles.textInput}
-                        value={(selectedLayer.highlightWords ?? []).join(', ')}
+                        value={hwText}
                         onChange={(e) => {
-                          const words = e.target.value
-                            .split(',')
-                            .map((w) => w.trim())
-                            .filter(Boolean);
+                          setHwText(e.target.value);
+                          const words = e.target.value.split(',').map((w) => w.trim()).filter(Boolean);
                           setLayer({
                             highlightWords: words,
                             // si resaltás palabras sin color de resaltado activo, activá uno por defecto
