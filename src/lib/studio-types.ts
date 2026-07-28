@@ -20,7 +20,7 @@ export interface MediaAsset {
 }
 
 // ── Historias ───────────────────────────────────────────────────────────────
-export type TextAlign = 'left' | 'center' | 'right';
+export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 
 /** Una capa de texto sobre un slide. x/y en 0..1 (fracción del lienzo 1080×1920). */
 export interface StoryTextLayer {
@@ -34,11 +34,39 @@ export interface StoryTextLayer {
   x: number; // 0..1
   y: number; // 0..1
   align: TextAlign;
+  /** Interlineado como múltiplo del tamaño (default 1.25). */
+  lineHeight?: number;
+  /** Ancho de la caja de texto como fracción del lienzo (0..1); habilita wrap y justify. null/undefined = auto. */
+  widthPct?: number | null;
+  /** Palabras concretas a subrayar (además del subrayado de toda la capa). Case-insensitive. */
+  underlineWords?: string[];
+}
+
+/** Imagen superpuesta sobre un slide (sticker/recorte). Centro en x/y (0..1). */
+export interface StoryImageOverlay {
+  src: string; // public_url del asset o data URL
+  x: number; // centro 0..1
+  y: number; // centro 0..1
+  w: number; // ancho como fracción del ancho del lienzo
+  h: number; // alto como fracción del alto del lienzo
+}
+
+/** Un trazo de dibujo a mano alzada. Puntos en 0..1; width en px sobre el lienzo 1080×1920. */
+export interface StoryDrawStroke {
+  color: string;
+  width: number;
+  points: { x: number; y: number }[];
 }
 
 export interface StorySlide {
   bg_asset_id: string | null;
+  /** Brillo del fondo: 1 = normal, <1 más oscuro, >1 más claro. */
+  bg_brightness?: number;
   layers: StoryTextLayer[];
+  /** Imágenes superpuestas (se dibujan sobre el fondo, debajo del texto). */
+  overlays?: StoryImageOverlay[];
+  /** Trazos de dibujo (se dibujan por encima de todo). */
+  strokes?: StoryDrawStroke[];
 }
 
 export interface StoryProject {

@@ -199,10 +199,11 @@
   position: absolute;
   cursor: grab;
   white-space: pre;
-  max-width: 92%;
+  max-width: 100%;
   border-radius: 3px;
   outline: 1px dashed transparent;
 }
+.textLine { display: block; }
 .layerBox:active { cursor: grabbing; }
 .layerBoxActive { outline-color: var(--accent-primary); outline-offset: 2px; }
 
@@ -422,3 +423,52 @@
 
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Modo (mover / dibujar) ---- */
+.modeBar {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+.modeBar .iconToggle {
+  width: auto;
+  height: 32px;
+  padding: 0 0.6rem;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+.drawTools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.drawTools input[type='range'] { width: 80px; }
+
+/* ---- Fondo: acciones + brillo ---- */
+.bgActions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.55rem 0;
+}
+
+/* ---- Dibujo y overlays sobre el lienzo ---- */
+.previewDraw { cursor: crosshair; }
+.drawSvg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.overlayImg {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  object-fit: contain;
+  outline: 1px dashed transparent;
+  border-radius: 2px;
+}
+.overlayImg:active { cursor: grabbing; }
+.overlayImgActive { outline-color: var(--accent-primary); outline-offset: 2px; }

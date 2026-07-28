@@ -5,21 +5,27 @@ import JSZip from 'jszip';
 import {
   Clapperboard, Plus, Save, Download, Trash2, Copy, Loader2,
   ArrowLeft, ArrowRight, Type, ImagePlus, Bold, Underline,
-  AlignLeft, AlignCenter, AlignRight, X, Highlighter,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Highlighter,
+  Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import MigrationBanner from '@/components/MigrationBanner';
 import DrivePicker from '@/components/DrivePicker';
-import { renderSlideToPng, proxied, STORY_FONTS } from '@/lib/storyRender';
-import type { StoryProject, StorySlide, StoryTextLayer, MediaAsset, TextAlign } from '@/lib/studio-types';
+import {
+  renderSlideToPng, proxied, STORY_FONTS, CANVAS_W, CANVAS_H,
+} from '@/lib/storyRender';
+import type {
+  StoryProject, StorySlide, StoryTextLayer, StoryImageOverlay, StoryDrawStroke,
+  MediaAsset, TextAlign,
+} from '@/lib/studio-types';
 import styles from './page.module.css';
 
 // ── Constantes ──────────────────────────────────────────────────────────────
 const MAX_SLIDES = 6;
 const RECOMMENDED_MIN = 4;
 const PREVIEW_W = 324; // px del preview; el lienzo real es 1080 → escala 0.3
-const CANVAS_W = 1080;
+const PREVIEW_H = PREVIEW_W * (CANVAS_H / CANVAS_W);
 const SCALE = PREVIEW_W / CANVAS_W;
 
 /** Slide editable: extiende StorySlide con la URL de fondo resuelta (persistida en el JSONB). */
@@ -39,9 +45,25 @@ const newLayer = (): StoryTextLayer => ({
   x: 0.5,
   y: 0.4,
   align: 'center',
+  lineHeight: 1.25,
+  widthPct: null,
+  underlineWords: [],
 });
 
-const newSlide = (): EditableSlide => ({ bg_asset_id: null, bg_url: null, layers: [] });
+const newSlide = (): EditableSlide => ({
+  bg_asset_id: null,
+  bg_url: null,
+  bg_brightness: 1,
+  layers: [],
+  overlays: [],
+  strokes: [],
+});
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/** Normaliza una palabra para comparar contra la lista de subrayado. */
+const cleanWord = (w: string) =>
+  w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\p{L}\p{N}]/gu, '');
 
 const slugify = (s: string) =>
   (s || 'historias')
@@ -57,6 +79,17 @@ const isMissingTable = (err: { code?: string; message?: string } | null) =>
   (err.code === '42P01' ||
     err.code === 'PGRST205' ||
     /does not exist|schema cache|could not find the table/i.test(err.message || ''));
+
+/** Carga una imagen (para medir aspect ratio de overlays). */
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('load error'));
+    img.src = src;
+  });
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -81,17 +114,29 @@ export default function HistoriasPage() {
   const [slides, setSlides] = useState<EditableSlide[]>([]);
   const [slideIdx, setSlideIdx] = useState(0);
   const [layerIdx, setLayerIdx] = useState<number | null>(null);
+  const [overlayIdx, setOverlayIdx] = useState<number | null>(null);
 
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [bgInput, setBgInput] = useState('');
+  const [uploadingBg, setUploadingBg] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // Dibujo a mano alzada
+  const [mode, setMode] = useState<'select' | 'draw'>('select');
+  const [drawColor, setDrawColor] = useState('#ff3040');
+  const [drawWidth, setDrawWidth] = useState(14); // px sobre el lienzo 1080
+  const [liveStroke, setLiveStroke] = useState<StoryDrawStroke | null>(null);
+  const liveRef = useRef<StoryDrawStroke | null>(null);
+
   const previewRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const dragRef = useRef<{ kind: 'layer' | 'overlay'; idx: number } | null>(null);
+  const bgFileRef = useRef<HTMLInputElement>(null);
+  const overlayFileRef = useRef<HTMLInputElement>(null);
 
   const current = slides[slideIdx];
   const selectedLayer = layerIdx != null ? current?.layers[layerIdx] : undefined;
+  const selectedOverlay = overlayIdx != null ? current?.overlays?.[overlayIdx] : undefined;
 
   // ── Carga inicial ──────────────────────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -139,6 +184,15 @@ export default function HistoriasPage() {
       ),
     );
 
+  const patchOverlay = (sIdx: number, oIdx: number, patch: Partial<StoryImageOverlay>) =>
+    setSlides((prev) =>
+      prev.map((s, i) =>
+        i === sIdx
+          ? { ...s, overlays: (s.overlays ?? []).map((o, j) => (j === oIdx ? { ...o, ...patch } : o)) }
+          : s,
+      ),
+    );
+
   const resolveBg = useCallback(
     (slide: EditableSlide): string => {
       if (slide.bg_url) return slide.bg_url;
@@ -159,7 +213,9 @@ export default function HistoriasPage() {
     setSlides(loaded.length ? loaded : [newSlide()]);
     setSlideIdx(0);
     setLayerIdx(null);
+    setOverlayIdx(null);
     setBgInput('');
+    setMode('select');
   };
 
   const createProject = async () => {
@@ -221,6 +277,7 @@ export default function HistoriasPage() {
     setSlides((prev) => [...prev, newSlide()]);
     setSlideIdx(slides.length);
     setLayerIdx(null);
+    setOverlayIdx(null);
   };
 
   const removeSlide = (idx: number) => {
@@ -228,6 +285,7 @@ export default function HistoriasPage() {
     setSlides((prev) => prev.filter((_, i) => i !== idx));
     setSlideIdx((cur) => Math.max(0, cur >= idx ? cur - 1 : cur));
     setLayerIdx(null);
+    setOverlayIdx(null);
   };
 
   const moveSlide = (idx: number, dir: -1 | 1) => {
@@ -254,11 +312,108 @@ export default function HistoriasPage() {
 
   const clearBg = () => patchSlide(slideIdx, { bg_url: null, bg_asset_id: null });
 
+  const randomBg = () => {
+    const imgs = assets.filter((a) => a.kind === 'image');
+    if (!imgs.length) {
+      toast('No hay imágenes en tu biblioteca todavía', 'info');
+      return;
+    }
+    const a = imgs[Math.floor(Math.random() * imgs.length)];
+    pickAsset(a);
+    toast('Fondo aleatorio aplicado', 'success');
+  };
+
+  /** Sube un archivo de imagen a /api/assets y lo agrega a la biblioteca. */
+  const uploadImageFile = async (file: File): Promise<MediaAsset | null> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('kind', 'image');
+    try {
+      const res = await fetch('/api/assets', { method: 'POST', body: fd });
+      if (res.status === 428) {
+        setMigrationNeeded(true);
+        return null;
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast(j.error || 'No se pudo subir la imagen', 'error');
+        return null;
+      }
+      const j = await res.json();
+      const asset: MediaAsset = {
+        id: j.id,
+        kind: 'image',
+        filename: file.name,
+        storage_path: j.storage_path,
+        public_url: j.public_url,
+        source: 'upload',
+        created_at: new Date().toISOString(),
+      };
+      setAssets((prev) => (prev.some((a) => a.id === asset.id) ? prev : [asset, ...prev]));
+      return asset;
+    } catch {
+      toast('No se pudo subir la imagen', 'error');
+      return null;
+    }
+  };
+
+  const onBgFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingBg(true);
+    const asset = await uploadImageFile(file);
+    setUploadingBg(false);
+    if (asset) {
+      pickAsset(asset);
+      toast('Imagen subida y aplicada como fondo', 'success');
+    }
+  };
+
+  // ── Imágenes superpuestas (overlays) ─────────────────────────────────────
+  const addOverlay = async (src: string) => {
+    let ratio = 1; // alto/ancho natural de la imagen
+    try {
+      const img = await loadImg(proxied(src));
+      if (img.naturalWidth) ratio = img.naturalHeight / img.naturalWidth;
+    } catch {
+      /* usa ratio 1 si no se puede medir */
+    }
+    const w = 0.4;
+    const h = w * ratio * (CANVAS_W / CANVAS_H); // corrige por el aspecto 9:16 del lienzo
+    const ov: StoryImageOverlay = { src, x: 0.5, y: 0.4, w, h };
+    const nextIdx = current.overlays?.length ?? 0;
+    patchSlide(slideIdx, { overlays: [...(current.overlays ?? []), ov] });
+    setOverlayIdx(nextIdx);
+    setLayerIdx(null);
+    setMode('select');
+  };
+
+  const onOverlayFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const asset = await uploadImageFile(file);
+    if (asset) await addOverlay(asset.public_url);
+  };
+
+  const removeOverlay = (oIdx: number) => {
+    patchSlide(slideIdx, { overlays: (current.overlays ?? []).filter((_, j) => j !== oIdx) });
+    setOverlayIdx(null);
+  };
+
+  const setOverlayWidth = (w: number) => {
+    if (overlayIdx == null || !selectedOverlay) return;
+    const factor = selectedOverlay.w ? w / selectedOverlay.w : 1;
+    patchOverlay(slideIdx, overlayIdx, { w, h: selectedOverlay.h * factor });
+  };
+
   // ── Capas de texto ──────────────────────────────────────────────────────
   const addLayer = () => {
     const idx = current.layers.length;
     patchSlide(slideIdx, { layers: [...current.layers, newLayer()] });
     setLayerIdx(idx);
+    setOverlayIdx(null);
   };
 
   const removeLayer = (lIdx: number) => {
@@ -271,25 +426,66 @@ export default function HistoriasPage() {
     patchLayer(slideIdx, layerIdx, patch);
   };
 
-  // ── Drag de capas sobre el preview ──────────────────────────────────────
-  const onLayerPointerDown = (lIdx: number) => (e: React.PointerEvent) => {
+  // ── Drag / dibujo sobre el preview ──────────────────────────────────────
+  const previewPoint = (e: React.PointerEvent) => {
+    const rect = previewRef.current!.getBoundingClientRect();
+    return {
+      x: clamp01((e.clientX - rect.left) / rect.width),
+      y: clamp01((e.clientY - rect.top) / rect.height),
+    };
+  };
+
+  const startDrag = (kind: 'layer' | 'overlay', idx: number) => (e: React.PointerEvent) => {
+    if (mode === 'draw') return;
     e.stopPropagation();
-    setLayerIdx(lIdx);
-    dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    if (kind === 'layer') {
+      setLayerIdx(idx);
+      setOverlayIdx(null);
+    } else {
+      setOverlayIdx(idx);
+      setLayerIdx(null);
+    }
+    dragRef.current = { kind, idx };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const onPreviewPointerDown = (e: React.PointerEvent) => {
+    if (mode !== 'draw' || !previewRef.current) return;
+    previewRef.current.setPointerCapture?.(e.pointerId);
+    const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, points: [previewPoint(e)] };
+    liveRef.current = stroke;
+    setLiveStroke(stroke);
   };
 
   const onPreviewPointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current || layerIdx == null || !previewRef.current) return;
-    const rect = previewRef.current.getBoundingClientRect();
-    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-    patchLayer(slideIdx, layerIdx, { x, y });
+    if (mode === 'draw') {
+      if (!liveRef.current) return;
+      const next = { ...liveRef.current, points: [...liveRef.current.points, previewPoint(e)] };
+      liveRef.current = next;
+      setLiveStroke(next);
+      return;
+    }
+    const d = dragRef.current;
+    if (!d || !previewRef.current) return;
+    const p = previewPoint(e);
+    if (d.kind === 'layer') patchLayer(slideIdx, d.idx, { x: p.x, y: p.y });
+    else patchOverlay(slideIdx, d.idx, { x: p.x, y: p.y });
   };
 
-  const endDrag = () => {
-    dragging.current = false;
+  const onPreviewPointerUp = () => {
+    if (mode === 'draw' && liveRef.current) {
+      const committed = liveRef.current;
+      liveRef.current = null;
+      setLiveStroke(null);
+      patchSlide(slideIdx, { strokes: [...(current.strokes ?? []), committed] });
+      return;
+    }
+    dragRef.current = null;
   };
+
+  const undoStroke = () =>
+    patchSlide(slideIdx, { strokes: (current.strokes ?? []).slice(0, -1) });
+  const clearStrokes = () => patchSlide(slideIdx, { strokes: [] });
 
   // ── Exportar ZIP ────────────────────────────────────────────────────────
   const exportZip = async () => {
@@ -310,12 +506,41 @@ export default function HistoriasPage() {
     setExporting(false);
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────
-  const alignBtns: { v: TextAlign; icon: React.ReactNode }[] = [
-    { v: 'left', icon: <AlignLeft size={15} /> },
-    { v: 'center', icon: <AlignCenter size={15} /> },
-    { v: 'right', icon: <AlignRight size={15} /> },
+  // ── Helpers de render ───────────────────────────────────────────────────
+  const alignBtns: { v: TextAlign; icon: React.ReactNode; title: string }[] = [
+    { v: 'left', icon: <AlignLeft size={15} />, title: 'Izquierda' },
+    { v: 'center', icon: <AlignCenter size={15} />, title: 'Centro' },
+    { v: 'right', icon: <AlignRight size={15} />, title: 'Derecha' },
+    { v: 'justify', icon: <AlignJustify size={15} />, title: 'Justificado' },
   ];
+
+  /** Texto de una capa para el preview: respeta \n y subraya palabras concretas. */
+  const renderLayerText = (l: StoryTextLayer): React.ReactNode => {
+    const set = new Set((l.underlineWords ?? []).map(cleanWord).filter(Boolean));
+    const lines = (l.text || ' ').split('\n');
+    return lines.map((line, li) => {
+      if (!set.size) return <span key={li} className={styles.textLine}>{line || ' '}</span>;
+      const words = line.split(' ');
+      return (
+        <span key={li} className={styles.textLine}>
+          {words.map((word, wi) => (
+            <span
+              key={wi}
+              style={word && set.has(cleanWord(word)) ? { textDecoration: 'underline' } : undefined}
+            >
+              {word}
+              {wi < words.length - 1 ? ' ' : ''}
+            </span>
+          ))}
+        </span>
+      );
+    });
+  };
+
+  const layerAnchorTransform = (align: TextAlign) =>
+    align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none';
+
+  const bright = current?.bg_brightness ?? 1;
 
   return (
     <div className={styles.page}>
@@ -325,7 +550,7 @@ export default function HistoriasPage() {
             <Clapperboard size={22} className={styles.titleIcon} /> Historias
           </h1>
           <p className={styles.subtitle}>
-            Armá secuencias de stories 9:16, superponé texto y exportalas como PNG listos para subir.
+            Armá secuencias de stories 9:16, superponé texto e imágenes, dibujá y exportalas como PNG listos para subir.
           </p>
         </div>
       </header>
@@ -399,20 +624,67 @@ export default function HistoriasPage() {
           <div className={styles.editorGrid}>
             {/* Lienzo + tira de slides */}
             <div className={styles.canvasCol}>
+              {/* Modo: seleccionar / dibujar */}
+              <div className={styles.modeBar}>
+                <button
+                  className={styles.iconToggle}
+                  data-on={mode === 'select'}
+                  onClick={() => setMode('select')}
+                  title="Mover y editar"
+                >
+                  <MousePointer2 size={15} /> Mover
+                </button>
+                <button
+                  className={styles.iconToggle}
+                  data-on={mode === 'draw'}
+                  onClick={() => { setMode('draw'); setLayerIdx(null); setOverlayIdx(null); }}
+                  title="Dibujar a mano alzada"
+                >
+                  <Pencil size={15} /> Dibujar
+                </button>
+                {mode === 'draw' && (
+                  <div className={styles.drawTools}>
+                    <input
+                      type="color"
+                      className={styles.colorInput}
+                      value={drawColor}
+                      onChange={(e) => setDrawColor(e.target.value)}
+                      title="Color del pincel"
+                    />
+                    <input
+                      type="range"
+                      min={4}
+                      max={48}
+                      value={drawWidth}
+                      onChange={(e) => setDrawWidth(Number(e.target.value))}
+                      title="Grosor"
+                    />
+                    <button className={styles.ghostBtnSm} onClick={undoStroke} title="Deshacer trazo">
+                      <Undo2 size={13} />
+                    </button>
+                    <button className={styles.ghostBtnSm} onClick={clearStrokes} title="Borrar dibujo">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div
                 ref={previewRef}
-                className={styles.preview}
-                style={{ width: PREVIEW_W, height: PREVIEW_W * (1920 / 1080) }}
+                className={`${styles.preview} ${mode === 'draw' ? styles.previewDraw : ''}`}
+                style={{ width: PREVIEW_W, height: PREVIEW_H }}
+                onPointerDown={onPreviewPointerDown}
                 onPointerMove={onPreviewPointerMove}
-                onPointerUp={endDrag}
-                onPointerLeave={endDrag}
-                onClick={() => setLayerIdx(null)}
+                onPointerUp={onPreviewPointerUp}
+                onPointerLeave={onPreviewPointerUp}
+                onClick={() => { if (mode === 'select') { setLayerIdx(null); setOverlayIdx(null); } }}
               >
                 {resolveBg(current) ? (
                   <img
-                    src={proxied(resolveBg(current), PREVIEW_W, Math.round(PREVIEW_W * (1920 / 1080)))}
+                    src={proxied(resolveBg(current), PREVIEW_W, Math.round(PREVIEW_H))}
                     alt=""
                     className={styles.previewBg}
+                    style={{ filter: bright !== 1 ? `brightness(${bright})` : undefined }}
                     referrerPolicy="no-referrer"
                     draggable={false}
                   />
@@ -420,19 +692,37 @@ export default function HistoriasPage() {
                   <div className={styles.previewEmpty}>Sin fondo</div>
                 )}
 
+                {/* Imágenes superpuestas */}
+                {(current.overlays ?? []).map((ov, j) => (
+                  <img
+                    key={`ov-${j}`}
+                    src={proxied(ov.src, 400, 400)}
+                    alt=""
+                    className={`${styles.overlayImg} ${j === overlayIdx && mode === 'select' ? styles.overlayImgActive : ''}`}
+                    style={{
+                      left: `${ov.x * 100}%`,
+                      top: `${ov.y * 100}%`,
+                      width: ov.w * PREVIEW_W,
+                      height: ov.h * PREVIEW_H,
+                      pointerEvents: mode === 'draw' ? 'none' : 'auto',
+                    }}
+                    referrerPolicy="no-referrer"
+                    draggable={false}
+                    onPointerDown={startDrag('overlay', j)}
+                    onClick={(e) => { e.stopPropagation(); if (mode === 'select') { setOverlayIdx(j); setLayerIdx(null); } }}
+                  />
+                ))}
+
+                {/* Capas de texto */}
                 {current.layers.map((l, j) => (
                   <div
                     key={j}
-                    className={`${styles.layerBox} ${j === layerIdx ? styles.layerBoxActive : ''}`}
+                    className={`${styles.layerBox} ${j === layerIdx && mode === 'select' ? styles.layerBoxActive : ''}`}
                     style={{
                       left: `${l.x * 100}%`,
                       top: `${l.y * 100}%`,
-                      transform:
-                        l.align === 'center'
-                          ? 'translateX(-50%)'
-                          : l.align === 'right'
-                            ? 'translateX(-100%)'
-                            : 'none',
+                      transform: layerAnchorTransform(l.align),
+                      width: l.widthPct ? l.widthPct * PREVIEW_W : 'max-content',
                       fontFamily: `"${l.font}", sans-serif`,
                       fontSize: l.size * SCALE,
                       fontWeight: l.bold ? 700 : 400,
@@ -441,17 +731,31 @@ export default function HistoriasPage() {
                       textDecoration: l.underline ? 'underline' : 'none',
                       background: l.highlight ?? 'transparent',
                       padding: l.highlight ? `${l.size * SCALE * 0.1}px ${l.size * SCALE * 0.18}px` : 0,
-                      lineHeight: 1.25,
+                      lineHeight: l.lineHeight ?? 1.25,
+                      pointerEvents: mode === 'draw' ? 'none' : 'auto',
+                      whiteSpace: l.widthPct ? 'normal' : 'pre',
                     }}
-                    onPointerDown={onLayerPointerDown(j)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLayerIdx(j);
-                    }}
+                    onPointerDown={startDrag('layer', j)}
+                    onClick={(e) => { e.stopPropagation(); if (mode === 'select') { setLayerIdx(j); setOverlayIdx(null); } }}
                   >
-                    {l.text || ' '}
+                    {renderLayerText(l)}
                   </div>
                 ))}
+
+                {/* Trazos de dibujo */}
+                <svg className={styles.drawSvg} width={PREVIEW_W} height={PREVIEW_H}>
+                  {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => (
+                    <polyline
+                      key={si}
+                      points={s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ')}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth={s.width * SCALE}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                </svg>
               </div>
 
               <div className={styles.slideStrip}>
@@ -462,6 +766,7 @@ export default function HistoriasPage() {
                     onClick={() => {
                       setSlideIdx(i);
                       setLayerIdx(null);
+                      setOverlayIdx(null);
                     }}
                     style={
                       resolveBg(s)
@@ -515,11 +820,36 @@ export default function HistoriasPage() {
                     Aplicar
                   </button>
                 </div>
-                {resolveBg(current) && (
-                  <button className={styles.linkBtn} onClick={clearBg}>
-                    <X size={13} /> Quitar fondo
+
+                <div className={styles.bgActions}>
+                  <button className={styles.ghostBtnSm} onClick={() => bgFileRef.current?.click()} disabled={uploadingBg}>
+                    {uploadingBg ? <Loader2 size={13} className={styles.spin} /> : <Upload size={13} />}
+                    Subir de la PC
                   </button>
-                )}
+                  <button className={styles.ghostBtnSm} onClick={randomBg} disabled={!assets.length}>
+                    <Shuffle size={13} /> Aleatorio
+                  </button>
+                  {resolveBg(current) && (
+                    <button className={styles.ghostBtnSm} onClick={clearBg}>
+                      <X size={13} /> Quitar
+                    </button>
+                  )}
+                </div>
+                <input ref={bgFileRef} type="file" accept="image/*" hidden onChange={onBgFile} />
+
+                {/* Brillo */}
+                <label className={styles.control}>
+                  <span><Sun size={12} /> Brillo del fondo · {Math.round(bright * 100)}%</span>
+                  <input
+                    type="range"
+                    min={30}
+                    max={170}
+                    value={Math.round(bright * 100)}
+                    disabled={!resolveBg(current)}
+                    onChange={(e) => patchSlide(slideIdx, { bg_brightness: Number(e.target.value) / 100 })}
+                  />
+                </label>
+
                 {assets.length > 0 && (
                   <>
                     <p className={styles.pickerLabel}>O elegí de tu biblioteca:</p>
@@ -546,7 +876,65 @@ export default function HistoriasPage() {
                 />
               </div>
 
-              {/* Capas */}
+              {/* Imágenes superpuestas */}
+              <div className={styles.inspectorBlock}>
+                <div className={styles.inspectorHead}>
+                  <h3 className={styles.inspectorTitle}><Images size={15} /> Imágenes superpuestas</h3>
+                  <button className={styles.ghostBtnSm} onClick={() => overlayFileRef.current?.click()}>
+                    <Upload size={13} /> Subir
+                  </button>
+                </div>
+                <input ref={overlayFileRef} type="file" accept="image/*" hidden onChange={onOverlayFile} />
+
+                {assets.length > 0 && (
+                  <div className={styles.assetGrid}>
+                    {assets.map((a) => (
+                      <button
+                        key={a.id}
+                        className={styles.assetThumb}
+                        onClick={() => addOverlay(a.public_url)}
+                        style={{ backgroundImage: `url(${proxied(a.public_url, 80, 80)})` }}
+                        title={`Superponer ${a.filename ?? 'imagen'}`}
+                        aria-label={`Superponer ${a.filename ?? 'imagen'}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {(current.overlays?.length ?? 0) === 0 ? (
+                  <p className={styles.muted}>Tocá una imagen para superponerla. Arrastrala en el lienzo para moverla.</p>
+                ) : (
+                  <div className={styles.layerList}>
+                    {(current.overlays ?? []).map((ov, j) => (
+                      <div
+                        key={j}
+                        className={`${styles.layerItem} ${j === overlayIdx ? styles.layerItemActive : ''}`}
+                        onClick={() => { setOverlayIdx(j); setLayerIdx(null); setMode('select'); }}
+                      >
+                        <span className={styles.layerItemText}>Imagen {j + 1}</span>
+                        <button onClick={(e) => { e.stopPropagation(); removeOverlay(j); }} aria-label="Eliminar imagen">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedOverlay && (
+                  <label className={styles.control}>
+                    <span>Tamaño · {Math.round(selectedOverlay.w * 100)}%</span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100}
+                      value={Math.round(selectedOverlay.w * 100)}
+                      onChange={(e) => setOverlayWidth(Number(e.target.value) / 100)}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Capas de texto */}
               <div className={styles.inspectorBlock}>
                 <div className={styles.inspectorHead}>
                   <h3 className={styles.inspectorTitle}><Type size={15} /> Capas de texto</h3>
@@ -561,7 +949,7 @@ export default function HistoriasPage() {
                       <div
                         key={j}
                         className={`${styles.layerItem} ${j === layerIdx ? styles.layerItemActive : ''}`}
-                        onClick={() => setLayerIdx(j)}
+                        onClick={() => { setLayerIdx(j); setOverlayIdx(null); }}
                       >
                         <span className={styles.layerItemText}>{l.text || '(vacío)'}</span>
                         <button onClick={(e) => { e.stopPropagation(); removeLayer(j); }} aria-label="Eliminar capa">
@@ -591,18 +979,44 @@ export default function HistoriasPage() {
                           onChange={(e) => setLayer({ font: e.target.value })}
                         >
                           {STORY_FONTS.map((f) => (
-                            <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                            <option key={f.family} value={f.family} style={{ fontFamily: f.family }}>{f.label}</option>
                           ))}
                         </select>
                       </label>
                       <label className={styles.control}>
-                        <span>Tamaño {selectedLayer.size}px</span>
+                        <span>Tamaño · {selectedLayer.size}px</span>
                         <input
                           type="range"
                           min={32}
                           max={220}
                           value={selectedLayer.size}
                           onChange={(e) => setLayer({ size: Number(e.target.value) })}
+                        />
+                      </label>
+                    </div>
+
+                    <div className={styles.controlRow}>
+                      <label className={styles.control}>
+                        <span>Interlineado · {(selectedLayer.lineHeight ?? 1.25).toFixed(2)}</span>
+                        <input
+                          type="range"
+                          min={80}
+                          max={220}
+                          value={Math.round((selectedLayer.lineHeight ?? 1.25) * 100)}
+                          onChange={(e) => setLayer({ lineHeight: Number(e.target.value) / 100 })}
+                        />
+                      </label>
+                      <label className={styles.control}>
+                        <span>Ancho / borde · {selectedLayer.widthPct ? `${Math.round(selectedLayer.widthPct * 100)}%` : 'auto'}</span>
+                        <input
+                          type="range"
+                          min={20}
+                          max={100}
+                          value={selectedLayer.widthPct ? Math.round(selectedLayer.widthPct * 100) : 100}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            setLayer({ widthPct: v >= 100 ? null : v / 100 });
+                          }}
                         />
                       </label>
                     </div>
@@ -657,7 +1071,7 @@ export default function HistoriasPage() {
                           data-on={selectedLayer.underline}
                           onClick={() => setLayer({ underline: !selectedLayer.underline })}
                           aria-pressed={selectedLayer.underline}
-                          title="Subrayado"
+                          title="Subrayar toda la capa"
                         >
                           <Underline size={15} />
                         </button>
@@ -670,13 +1084,31 @@ export default function HistoriasPage() {
                             data-on={selectedLayer.align === b.v}
                             onClick={() => setLayer({ align: b.v })}
                             aria-pressed={selectedLayer.align === b.v}
-                            title={`Alinear ${b.v}`}
+                            title={`Alinear ${b.title}`}
                           >
                             {b.icon}
                           </button>
                         ))}
                       </div>
                     </div>
+
+                    <label className={styles.control}>
+                      <span><Underline size={12} /> Subrayar palabras concretas (separadas por coma)</span>
+                      <input
+                        className={styles.textInput}
+                        value={(selectedLayer.underlineWords ?? []).join(', ')}
+                        onChange={(e) =>
+                          setLayer({
+                            underlineWords: e.target.value
+                              .split(',')
+                              .map((w) => w.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder="ej. gratis, hoy, ahora"
+                      />
+                    </label>
+
                     <p className={styles.hint}><Copy size={12} /> Arrastrá el texto sobre el lienzo para posicionarlo.</p>
                   </div>
                 )}
