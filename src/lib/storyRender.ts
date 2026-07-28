@@ -46,11 +46,16 @@ export const STORY_FONTS: StoryFont[] = [
  * Envuelve una URL remota en el proxy de imágenes (resuelve CORS + resize).
  * Deja intactos los data:/blob: y las URLs ya proxeadas.
  */
-export function proxied(url: string, w = CANVAS_W, h = CANVAS_H): string {
+export function proxied(
+  url: string,
+  w = CANVAS_W,
+  h = CANVAS_H,
+  fit: 'cover' | 'inside' = 'cover',
+): string {
   if (!url) return '';
   if (!/^https?:\/\//i.test(url)) return url; // data:, blob:, relativas
   if (url.startsWith('https://wsrv.nl/')) return url;
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=${w}&h=${h}&fit=cover&output=png`;
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=${w}&h=${h}&fit=${fit}&output=png`;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -216,20 +221,91 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
 
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: StoryDrawStroke): void {
   if (stroke.points.length < 1) return;
-  ctx.strokeStyle = stroke.color;
-  ctx.lineWidth = stroke.width;
+  const buildPath = () => {
+    ctx.beginPath();
+    const [first, ...rest] = stroke.points;
+    ctx.moveTo(first.x * CANVAS_W, first.y * CANVAS_H);
+    if (rest.length === 0) ctx.lineTo(first.x * CANVAS_W + 0.1, first.y * CANVAS_H);
+    else for (const p of rest) ctx.lineTo(p.x * CANVAS_W, p.y * CANVAS_H);
+  };
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.beginPath();
-  const [first, ...rest] = stroke.points;
-  ctx.moveTo(first.x * CANVAS_W, first.y * CANVAS_H);
-  if (rest.length === 0) {
-    // Un solo punto: dibuja un puntito.
-    ctx.lineTo(first.x * CANVAS_W + 0.1, first.y * CANVAS_H);
-  } else {
-    for (const p of rest) ctx.lineTo(p.x * CANVAS_W, p.y * CANVAS_H);
+
+  if (stroke.glow) {
+    ctx.save();
+    // Halo neón: color con sombra difusa (dibujado dos veces para intensificar).
+    ctx.shadowColor = stroke.color;
+    ctx.shadowBlur = Math.max(10, stroke.width * 1.6);
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = stroke.width;
+    buildPath();
+    ctx.stroke();
+    buildPath();
+    ctx.stroke();
+    // Núcleo brillante encima, sin sombra.
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = Math.max(1, stroke.width * 0.38);
+    buildPath();
+    ctx.stroke();
+    ctx.restore();
+    return;
   }
+
+  ctx.strokeStyle = stroke.color;
+  ctx.lineWidth = stroke.width;
+  buildPath();
   ctx.stroke();
+}
+
+/** Traza (sin pintar) un rectángulo redondeado; usa ctx.roundRect si existe. */
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  if (typeof (ctx as CanvasRenderingContext2D & { roundRect?: unknown }).roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, rr);
+    return;
+  }
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/** Dibuja una imagen cubriendo (cover) una caja destino, recortada a su forma. */
+function drawOverlay(
+  ctx: CanvasRenderingContext2D,
+  ov: StoryImageOverlay,
+  img: HTMLImageElement,
+): void {
+  const w = ov.w * CANVAS_W;
+  const h = ov.h * CANVAS_H;
+  const dx = ov.x * CANVAS_W - w / 2;
+  const dy = ov.y * CANVAS_H - h / 2;
+  const r = (ov.radius ?? 0) * Math.min(w, h);
+
+  ctx.save();
+  if (r > 0) {
+    roundRectPath(ctx, dx, dy, w, h, r);
+    ctx.clip();
+  }
+  // cover: escala para llenar la caja y recorta el excedente centrado.
+  const scale = Math.max(w / img.width, h / img.height);
+  const sw = w / scale;
+  const sh = h / scale;
+  const sx = (img.width - sw) / 2;
+  const sy = (img.height - sh) / 2;
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, w, h);
+  ctx.restore();
 }
 
 /** Espera a que las fuentes usadas por el slide estén cargadas (para medir/pintar en canvas). */
@@ -281,10 +357,8 @@ export async function renderSlideToCanvas(
   // Imágenes superpuestas (debajo del texto).
   for (const ov of slide.overlays ?? []) {
     try {
-      const img = await loadImage(proxied(ov.src));
-      const w = ov.w * CANVAS_W;
-      const h = ov.h * CANVAS_H;
-      ctx.drawImage(img, ov.x * CANVAS_W - w / 2, ov.y * CANVAS_H - h / 2, w, h);
+      const img = await loadImage(proxied(ov.src, 1000, 1000, 'inside'));
+      drawOverlay(ctx, ov, img);
     } catch {
       /* omite el overlay que no cargue */
     }

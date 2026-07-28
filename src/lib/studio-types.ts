@@ -51,6 +51,10 @@ export interface StoryImageOverlay {
   y: number; // centro 0..1
   w: number; // ancho como fracción del ancho del lienzo
   h: number; // alto como fracción del alto del lienzo
+  /** Radio de esquinas 0..0.5 (fracción del lado menor). 0.5 = círculo si la caja es cuadrada. */
+  radius?: number;
+  /** Aspecto natural (ancho/alto) de la imagen, para el preset "Original". */
+  srcRatio?: number;
 }
 
 /** Un trazo de dibujo a mano alzada. Puntos en 0..1; width en px sobre el lienzo 1080×1920. */
@@ -58,6 +62,8 @@ export interface StoryDrawStroke {
   color: string;
   width: number;
   points: { x: number; y: number }[];
+  /** Efecto neón: halo brillante alrededor del trazo + núcleo claro. */
+  glow?: boolean;
 }
 
 export interface StorySlide {

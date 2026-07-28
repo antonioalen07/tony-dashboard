@@ -6,7 +6,7 @@ import {
   Clapperboard, Plus, Save, Download, Trash2, Copy, Loader2,
   ArrowLeft, ArrowRight, Type, ImagePlus, Bold, Underline,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Highlighter,
-  Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2,
+  Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2, Sparkles,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
@@ -125,10 +125,12 @@ export default function HistoriasPage() {
 
   // Dibujo a mano alzada
   const [mode, setMode] = useState<'select' | 'draw'>('select');
-  const [drawColor, setDrawColor] = useState('#ff3040');
+  const [drawColor, setDrawColor] = useState('#ffd60a');
   const [drawWidth, setDrawWidth] = useState(14); // px sobre el lienzo 1080
+  const [drawGlow, setDrawGlow] = useState(true);
   const [liveStroke, setLiveStroke] = useState<StoryDrawStroke | null>(null);
   const liveRef = useRef<StoryDrawStroke | null>(null);
+  const [showOverlayPicker, setShowOverlayPicker] = useState(false);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ kind: 'layer' | 'overlay'; idx: number } | null>(null);
@@ -373,22 +375,39 @@ export default function HistoriasPage() {
 
   // ── Imágenes superpuestas (overlays) ─────────────────────────────────────
   const addOverlay = async (src: string) => {
-    let ratio = 1; // alto/ancho natural de la imagen
+    let srcRatio = 1; // ancho/alto natural de la imagen
     try {
-      const img = await loadImg(proxied(src));
-      if (img.naturalWidth) ratio = img.naturalHeight / img.naturalWidth;
+      const img = await loadImg(proxied(src, 600, 600, 'inside'));
+      if (img.naturalHeight) srcRatio = img.naturalWidth / img.naturalHeight;
     } catch {
       /* usa ratio 1 si no se puede medir */
     }
     const w = 0.4;
-    const h = w * ratio * (CANVAS_W / CANVAS_H); // corrige por el aspecto 9:16 del lienzo
-    const ov: StoryImageOverlay = { src, x: 0.5, y: 0.4, w, h };
+    // altura para conservar el aspecto natural dentro del lienzo 9:16
+    const h = (w * CANVAS_W) / (srcRatio * CANVAS_H);
+    const ov: StoryImageOverlay = { src, x: 0.5, y: 0.4, w, h, radius: 0, srcRatio };
     const nextIdx = current.overlays?.length ?? 0;
     patchSlide(slideIdx, { overlays: [...(current.overlays ?? []), ov] });
     setOverlayIdx(nextIdx);
     setLayerIdx(null);
+    setShowOverlayPicker(false);
     setMode('select');
   };
+
+  /** Fija el aspecto (ancho/alto en px) de la caja del overlay manteniendo el ancho. */
+  const setOverlayAspect = (ratioWH: number, radius?: number) => {
+    if (overlayIdx == null || !selectedOverlay) return;
+    const h = (selectedOverlay.w * CANVAS_W) / (ratioWH * CANVAS_H);
+    patchOverlay(slideIdx, overlayIdx, radius != null ? { h, radius } : { h });
+  };
+
+  const overlayShapes: { label: string; ratioWH: () => number; radius?: number }[] = [
+    { label: 'Original', ratioWH: () => selectedOverlay?.srcRatio ?? 1 },
+    { label: 'Cuadrada', ratioWH: () => 1 },
+    { label: 'Vertical', ratioWH: () => 4 / 5 },
+    { label: 'Story', ratioWH: () => 9 / 16 },
+    { label: 'Círculo', ratioWH: () => 1, radius: 0.5 },
+  ];
 
   const onOverlayFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -453,7 +472,7 @@ export default function HistoriasPage() {
   const onPreviewPointerDown = (e: React.PointerEvent) => {
     if (mode !== 'draw' || !previewRef.current) return;
     previewRef.current.setPointerCapture?.(e.pointerId);
-    const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, points: [previewPoint(e)] };
+    const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, points: [previewPoint(e)] };
     liveRef.current = stroke;
     setLiveStroke(stroke);
   };
@@ -673,6 +692,14 @@ export default function HistoriasPage() {
                       onChange={(e) => setDrawWidth(Number(e.target.value))}
                       title="Grosor"
                     />
+                    <button
+                      className={styles.iconToggle}
+                      data-on={drawGlow}
+                      onClick={() => setDrawGlow((v) => !v)}
+                      title="Neón (halo brillante)"
+                    >
+                      <Sparkles size={15} />
+                    </button>
                     <button className={styles.ghostBtnSm} onClick={undoStroke} title="Deshacer trazo">
                       <Undo2 size={13} />
                     </button>
@@ -707,25 +734,33 @@ export default function HistoriasPage() {
                 )}
 
                 {/* Imágenes superpuestas */}
-                {(current.overlays ?? []).map((ov, j) => (
-                  <img
-                    key={`ov-${j}`}
-                    src={proxied(ov.src, 400, 400)}
-                    alt=""
-                    className={`${styles.overlayImg} ${j === overlayIdx && mode === 'select' ? styles.overlayImgActive : ''}`}
-                    style={{
-                      left: `${ov.x * 100}%`,
-                      top: `${ov.y * 100}%`,
-                      width: ov.w * PREVIEW_W,
-                      height: ov.h * PREVIEW_H,
-                      pointerEvents: mode === 'draw' ? 'none' : 'auto',
-                    }}
-                    referrerPolicy="no-referrer"
-                    draggable={false}
-                    onPointerDown={startDrag('overlay', j)}
-                    onClick={(e) => { e.stopPropagation(); if (mode === 'select') { setOverlayIdx(j); setLayerIdx(null); } }}
-                  />
-                ))}
+                {(current.overlays ?? []).map((ov, j) => {
+                  const wPx = ov.w * PREVIEW_W;
+                  const hPx = ov.h * PREVIEW_H;
+                  return (
+                    <div
+                      key={`ov-${j}`}
+                      className={`${styles.overlayImg} ${j === overlayIdx && mode === 'select' ? styles.overlayImgActive : ''}`}
+                      style={{
+                        left: `${ov.x * 100}%`,
+                        top: `${ov.y * 100}%`,
+                        width: wPx,
+                        height: hPx,
+                        borderRadius: (ov.radius ?? 0) * Math.min(wPx, hPx),
+                        pointerEvents: mode === 'draw' ? 'none' : 'auto',
+                      }}
+                      onPointerDown={startDrag('overlay', j)}
+                      onClick={(e) => { e.stopPropagation(); if (mode === 'select') { setOverlayIdx(j); setLayerIdx(null); } }}
+                    >
+                      <img
+                        src={proxied(ov.src, 500, 500, 'inside')}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        draggable={false}
+                      />
+                    </div>
+                  );
+                })}
 
                 {/* Capas de texto */}
                 {current.layers.map((l, j) => (
@@ -758,17 +793,53 @@ export default function HistoriasPage() {
 
                 {/* Trazos de dibujo */}
                 <svg className={styles.drawSvg} width={PREVIEW_W} height={PREVIEW_H}>
-                  {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => (
-                    <polyline
-                      key={si}
-                      points={s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ')}
-                      fill="none"
-                      stroke={s.color}
-                      strokeWidth={s.width * SCALE}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  ))}
+                  <defs>
+                    <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="3" result="b" />
+                      <feMerge>
+                        <feMergeNode in="b" />
+                        <feMergeNode in="b" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+                  {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => {
+                    const pts = s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ');
+                    if (s.glow) {
+                      return (
+                        <g key={si}>
+                          <polyline
+                            points={pts}
+                            fill="none"
+                            stroke={s.color}
+                            strokeWidth={s.width * SCALE}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            filter="url(#neonGlow)"
+                          />
+                          <polyline
+                            points={pts}
+                            fill="none"
+                            stroke="#ffffff"
+                            strokeWidth={Math.max(1, s.width * SCALE * 0.38)}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </g>
+                      );
+                    }
+                    return (
+                      <polyline
+                        key={si}
+                        points={pts}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth={s.width * SCALE}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    );
+                  })}
                 </svg>
               </div>
 
@@ -894,29 +965,41 @@ export default function HistoriasPage() {
               <div className={styles.inspectorBlock}>
                 <div className={styles.inspectorHead}>
                   <h3 className={styles.inspectorTitle}><Images size={15} /> Imágenes superpuestas</h3>
-                  <button className={styles.ghostBtnSm} onClick={() => overlayFileRef.current?.click()}>
-                    <Upload size={13} /> Subir
+                  <button className={styles.ghostBtnSm} onClick={() => setShowOverlayPicker((v) => !v)}>
+                    <Plus size={13} /> Agregar
                   </button>
                 </div>
                 <input ref={overlayFileRef} type="file" accept="image/*" hidden onChange={onOverlayFile} />
 
-                {assets.length > 0 && (
-                  <div className={styles.assetGrid}>
-                    {assets.map((a) => (
-                      <button
-                        key={a.id}
-                        className={styles.assetThumb}
-                        onClick={() => addOverlay(a.public_url)}
-                        style={{ backgroundImage: `url(${proxied(a.public_url, 80, 80)})` }}
-                        title={`Superponer ${a.filename ?? 'imagen'}`}
-                        aria-label={`Superponer ${a.filename ?? 'imagen'}`}
-                      />
-                    ))}
+                {showOverlayPicker && (
+                  <div className={styles.overlayPicker}>
+                    <button className={styles.ghostBtnSm} onClick={() => overlayFileRef.current?.click()}>
+                      <Upload size={13} /> Subir de la PC
+                    </button>
+                    {assets.length > 0 ? (
+                      <>
+                        <p className={styles.pickerLabel}>O elegí de tu biblioteca para superponer:</p>
+                        <div className={styles.assetGrid}>
+                          {assets.map((a) => (
+                            <button
+                              key={a.id}
+                              className={styles.assetThumb}
+                              onClick={() => addOverlay(a.public_url)}
+                              style={{ backgroundImage: `url(${proxied(a.public_url, 80, 80)})` }}
+                              title={`Superponer ${a.filename ?? 'imagen'}`}
+                              aria-label={`Superponer ${a.filename ?? 'imagen'}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p className={styles.muted}>Subí una imagen para superponerla.</p>
+                    )}
                   </div>
                 )}
 
                 {(current.overlays?.length ?? 0) === 0 ? (
-                  <p className={styles.muted}>Tocá una imagen para superponerla. Arrastrala en el lienzo para moverla.</p>
+                  <p className={styles.muted}>Sin imágenes superpuestas. Usá <strong>Agregar</strong>; después arrastralas en el lienzo.</p>
                 ) : (
                   <div className={styles.layerList}>
                     {(current.overlays ?? []).map((ov, j) => (
@@ -935,16 +1018,42 @@ export default function HistoriasPage() {
                 )}
 
                 {selectedOverlay && (
-                  <label className={styles.control}>
-                    <span>Tamaño · {Math.round(selectedOverlay.w * 100)}%</span>
-                    <input
-                      type="range"
-                      min={10}
-                      max={100}
-                      value={Math.round(selectedOverlay.w * 100)}
-                      onChange={(e) => setOverlayWidth(Number(e.target.value) / 100)}
-                    />
-                  </label>
+                  <>
+                    <p className={styles.pickerLabel}>Forma:</p>
+                    <div className={styles.toggleGroup}>
+                      {overlayShapes.map((sh) => (
+                        <button
+                          key={sh.label}
+                          className={styles.shapeBtn}
+                          onClick={() => setOverlayAspect(sh.ratioWH(), sh.radius ?? 0)}
+                        >
+                          {sh.label}
+                        </button>
+                      ))}
+                    </div>
+                    <label className={styles.control}>
+                      <span>Tamaño · {Math.round(selectedOverlay.w * 100)}%</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        value={Math.round(selectedOverlay.w * 100)}
+                        onChange={(e) => setOverlayWidth(Number(e.target.value) / 100)}
+                      />
+                    </label>
+                    <label className={styles.control}>
+                      <span>Redondez · {Math.round((selectedOverlay.radius ?? 0) * 200)}%</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={50}
+                        value={Math.round((selectedOverlay.radius ?? 0) * 100)}
+                        onChange={(e) =>
+                          overlayIdx != null && patchOverlay(slideIdx, overlayIdx, { radius: Number(e.target.value) / 100 })
+                        }
+                      />
+                    </label>
+                  </>
                 )}
               </div>
 
