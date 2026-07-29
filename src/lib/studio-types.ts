@@ -42,6 +42,8 @@ export interface StoryTextLayer {
   underlineWords?: string[];
   /** Palabras concretas a resaltar (usa el color de `highlight`). Si está vacío y hay `highlight`, se resalta toda la capa. Case-insensitive. */
   highlightWords?: string[];
+  /** Orden de apilado (mayor = más al frente). Sin valor: default por tipo. */
+  z?: number;
 }
 
 /** Imagen superpuesta sobre un slide (sticker/recorte). Centro en x/y (0..1). */
@@ -55,6 +57,8 @@ export interface StoryImageOverlay {
   radius?: number;
   /** Aspecto natural (ancho/alto) de la imagen, para el preset "Original". */
   srcRatio?: number;
+  /** Orden de apilado (mayor = más al frente). Sin valor: default por tipo. */
+  z?: number;
 }
 
 /** Un trazo de dibujo a mano alzada. Puntos en 0..1; width en px sobre el lienzo 1080×1920. */
@@ -64,6 +68,8 @@ export interface StoryDrawStroke {
   points: { x: number; y: number }[];
   /** Efecto neón: halo brillante alrededor del trazo + núcleo claro. */
   glow?: boolean;
+  /** Orden de apilado (mayor = más al frente). Sin valor: default por tipo. */
+  z?: number;
 }
 
 export interface StorySlide {

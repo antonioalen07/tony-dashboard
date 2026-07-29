@@ -193,13 +193,42 @@ async function persistTokens(tokens: GoogleTokenResponse, existingId?: string): 
 }
 
 // ── Drive REST ──────────────────────────────────────────────────────────────
-/** Lista imágenes del Drive del usuario (`mimeType contains 'image/'`). */
+/** Carpeta de Drive (para el selector de carpeta). */
+export interface DriveFolder {
+  id: string;
+  name: string;
+}
+
+/** Lista las carpetas del Drive del usuario (ordenadas por nombre). */
+export async function listFolders(accessToken: string): Promise<DriveFolder[]> {
+  const params = new URLSearchParams({
+    q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+    fields: 'files(id, name)',
+    pageSize: '200',
+    orderBy: 'name',
+    spaces: 'drive',
+  });
+  const res = await fetch(`${DRIVE_API}/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Drive folders.list falló (${res.status}): ${await res.text()}`);
+  const json = (await res.json()) as { files?: DriveFolder[] };
+  return json.files ?? [];
+}
+
+/**
+ * Lista imágenes del Drive del usuario (`mimeType contains 'image/'`).
+ * Si se pasa `folderId`, limita a las imágenes dentro de esa carpeta.
+ */
 export async function listImageFiles(
   accessToken: string,
   pageToken?: string,
+  folderId?: string,
 ): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
+  let q = "mimeType contains 'image/' and trashed = false";
+  if (folderId) q += ` and '${folderId}' in parents`;
   const params = new URLSearchParams({
-    q: "mimeType contains 'image/' and trashed = false",
+    q,
     fields: 'nextPageToken, files(id, name, mimeType, thumbnailLink, imageMediaMetadata)',
     pageSize: '60',
     orderBy: 'modifiedTime desc',

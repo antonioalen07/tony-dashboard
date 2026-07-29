@@ -368,20 +368,22 @@ export async function renderSlideToCanvas(
     }
   }
 
-  // Imágenes superpuestas (debajo del texto).
-  for (const ov of slide.overlays ?? []) {
-    try {
-      const img = await loadImage(proxied(ov.src, 1000, 1000, 'inside'));
-      drawOverlay(ctx, ov, img);
-    } catch {
-      /* omite el overlay que no cargue */
-    }
-  }
+  // Precarga las imágenes de los overlays (para poder dibujar en orden de z).
+  const overlays = slide.overlays ?? [];
+  const overlayImgs = await Promise.all(
+    overlays.map((ov) => loadImage(proxied(ov.src, 1000, 1000, 'inside')).catch(() => null)),
+  );
 
-  for (const layer of slide.layers) drawLayer(ctx, layer);
-
-  // Trazos de dibujo por encima de todo.
-  for (const stroke of slide.strokes ?? []) drawStroke(ctx, stroke);
+  // Lista unificada de elementos, ordenada por z (default por tipo: overlays<texto<trazos).
+  const drawables: { z: number; run: () => void }[] = [];
+  overlays.forEach((ov, i) => {
+    const img = overlayImgs[i];
+    if (img) drawables.push({ z: ov.z ?? 10, run: () => drawOverlay(ctx, ov, img) });
+  });
+  for (const layer of slide.layers) drawables.push({ z: layer.z ?? 20, run: () => drawLayer(ctx, layer) });
+  for (const stroke of slide.strokes ?? []) drawables.push({ z: stroke.z ?? 30, run: () => drawStroke(ctx, stroke) });
+  drawables.sort((a, b) => a.z - b.z);
+  for (const d of drawables) d.run();
 
   return canvas;
 }

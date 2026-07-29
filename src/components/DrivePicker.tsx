@@ -16,6 +16,11 @@ interface DriveFile {
   thumbnailLink?: string;
 }
 
+interface DriveFolder {
+  id: string;
+  name: string;
+}
+
 type Status = 'checking' | 'disconnected' | 'connected' | 'migration';
 
 interface DrivePickerProps {
@@ -31,11 +36,16 @@ export default function DrivePicker({ onPicked }: DrivePickerProps) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
+  const [folders, setFolders] = useState<DriveFolder[]>([]);
+  const [folderId, setFolderId] = useState<string>(''); // '' = todas las imágenes
 
   const loadFiles = useCallback(
-    async (pageToken?: string) => {
+    async (pageToken?: string, fid: string = '') => {
       try {
-        const qs = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : '';
+        const params = new URLSearchParams();
+        if (pageToken) params.set('pageToken', pageToken);
+        if (fid) params.set('folderId', fid);
+        const qs = params.toString() ? `?${params.toString()}` : '';
         const res = await fetch(`/api/google/files${qs}`);
 
         if (res.status === 401) {
@@ -61,16 +71,35 @@ export default function DrivePicker({ onPicked }: DrivePickerProps) {
     [toast],
   );
 
+  const loadFolders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/google/folders');
+      if (!res.ok) return;
+      const json = await res.json();
+      setFolders((json.folders ?? []) as DriveFolder[]);
+    } catch {
+      /* opcional: si falla, se usa "Todas las imágenes" */
+    }
+  }, []);
+
   useEffect(() => {
     // Fetch inicial al montar: setState tras await es el patrón esperado acá.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadFiles();
-  }, [loadFiles]);
+    void loadFolders();
+  }, [loadFiles, loadFolders]);
+
+  const onFolderChange = (v: string) => {
+    setFolderId(v);
+    setFiles([]);
+    setNextPageToken(undefined);
+    void loadFiles(undefined, v);
+  };
 
   const loadMore = () => {
     if (!nextPageToken) return;
     setLoadingMore(true);
-    void loadFiles(nextPageToken);
+    void loadFiles(nextPageToken, folderId);
   };
 
   const connect = () => {
@@ -135,10 +164,21 @@ export default function DrivePicker({ onPicked }: DrivePickerProps) {
         <span className={styles.title}>
           <HardDrive size={15} /> Google Drive
         </span>
+        <select
+          className={styles.folderSelect}
+          value={folderId}
+          onChange={(e) => onFolderChange(e.target.value)}
+          aria-label="Elegir carpeta"
+        >
+          <option value="">Todas las imágenes</option>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
         <button
           type="button"
           className={styles.iconBtn}
-          onClick={() => loadFiles()}
+          onClick={() => loadFiles(undefined, folderId)}
           aria-label="Recargar"
         >
           <RefreshCw size={15} />

@@ -8,6 +8,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.folderSelect {
+  flex: 1;
+  min-width: 0;
+  max-width: 220px;
+  margin-left: auto;
+  padding: 0.32rem 0.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 .title {

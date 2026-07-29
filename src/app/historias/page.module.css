@@ -514,3 +514,10 @@
   transition: var(--transition);
 }
 .shapeBtn:hover { color: var(--text-primary); border-color: var(--accent-primary); }
+
+.orderRow {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.orderRow .ghostBtnSm { flex: 1; justify-content: center; }
