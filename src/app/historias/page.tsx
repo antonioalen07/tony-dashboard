@@ -7,6 +7,7 @@ import {
   ArrowLeft, ArrowRight, Type, ImagePlus, Bold, Underline,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Highlighter,
   Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2, Sparkles,
+  BringToFront, SendToBack,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
@@ -486,7 +487,7 @@ export default function HistoriasPage() {
     const w = 0.4;
     // altura para conservar el aspecto natural dentro del lienzo 9:16
     const h = (w * CANVAS_W) / (srcRatio * CANVAS_H);
-    const ov: StoryImageOverlay = { src, x: 0.5, y: 0.4, w, h, radius: 0, srcRatio };
+    const ov: StoryImageOverlay = { src, x: 0.5, y: 0.4, w, h, radius: 0, srcRatio, z: topZ() };
     const nextIdx = current.overlays?.length ?? 0;
     patchSlide(slideIdx, { overlays: [...(current.overlays ?? []), ov] });
     setOverlayIdx(nextIdx);
@@ -532,7 +533,7 @@ export default function HistoriasPage() {
   // ── Capas de texto ──────────────────────────────────────────────────────
   const addLayer = () => {
     const idx = current.layers.length;
-    patchSlide(slideIdx, { layers: [...current.layers, newLayer()] });
+    patchSlide(slideIdx, { layers: [...current.layers, { ...newLayer(), z: topZ() }] });
     setLayerIdx(idx);
     setOverlayIdx(null);
   };
@@ -546,6 +547,24 @@ export default function HistoriasPage() {
     if (layerIdx == null) return;
     patchLayer(slideIdx, layerIdx, patch);
   };
+
+  // ── Orden de capas (z unificado: overlays default 10, texto 20, trazos 30) ──
+  const zList = () => {
+    const zs: number[] = [];
+    (current.overlays ?? []).forEach((o) => zs.push(o.z ?? 10));
+    current.layers.forEach((l) => zs.push(l.z ?? 20));
+    (current.strokes ?? []).forEach((s) => zs.push(s.z ?? 30));
+    return zs;
+  };
+  const topZ = () => { const z = zList(); return z.length ? Math.max(...z) + 1 : 1; };
+  const bottomZ = () => { const z = zList(); return z.length ? Math.min(...z) - 1 : 0; };
+
+  const overlayToFront = () => overlayIdx != null && patchOverlay(slideIdx, overlayIdx, { z: topZ() });
+  const overlayToBack = () => overlayIdx != null && patchOverlay(slideIdx, overlayIdx, { z: bottomZ() });
+  const layerToFront = () => setLayer({ z: topZ() });
+  const layerToBack = () => setLayer({ z: bottomZ() });
+  const drawingsToFront = () => patchSlide(slideIdx, { strokes: (current.strokes ?? []).map((s) => ({ ...s, z: topZ() })) });
+  const drawingsToBack = () => patchSlide(slideIdx, { strokes: (current.strokes ?? []).map((s) => ({ ...s, z: bottomZ() })) });
 
   // ── Drag / dibujo sobre el preview ──────────────────────────────────────
   const previewPoint = (e: React.PointerEvent) => {
@@ -574,7 +593,7 @@ export default function HistoriasPage() {
     if (!previewRef.current) return;
     if (mode === 'draw') {
       previewRef.current.setPointerCapture?.(e.pointerId);
-      const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, points: [previewPoint(e)] };
+      const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, z: topZ(), points: [previewPoint(e)] };
       liveRef.current = stroke;
       setLiveStroke(stroke);
       return;
@@ -875,6 +894,12 @@ export default function HistoriasPage() {
                     <button className={styles.ghostBtnSm} onClick={clearStrokes} title="Borrar dibujo">
                       <Trash2 size={13} />
                     </button>
+                    <button className={styles.ghostBtnSm} onClick={drawingsToFront} title="Dibujos al frente (sobre el texto)">
+                      <BringToFront size={13} />
+                    </button>
+                    <button className={styles.ghostBtnSm} onClick={drawingsToBack} title="Dibujos al fondo (bajo el texto)">
+                      <SendToBack size={13} />
+                    </button>
                   </div>
                 )}
               </div>
@@ -920,6 +945,7 @@ export default function HistoriasPage() {
                         width: wPx,
                         height: hPx,
                         borderRadius: (ov.radius ?? 0) * Math.min(wPx, hPx),
+                        zIndex: ov.z ?? 10,
                         pointerEvents: mode === 'draw' ? 'none' : 'auto',
                       }}
                       onPointerDown={startDrag('overlay', j)}
@@ -954,6 +980,7 @@ export default function HistoriasPage() {
                       background: l.highlight && !(l.highlightWords?.length) ? l.highlight : 'transparent',
                       padding: l.highlight && !(l.highlightWords?.length) ? `${l.size * SCALE * 0.1}px ${l.size * SCALE * 0.18}px` : 0,
                       lineHeight: l.lineHeight ?? 1.25,
+                      zIndex: l.z ?? 20,
                       pointerEvents: mode === 'draw' ? 'none' : 'auto',
                       whiteSpace: l.widthPct ? 'normal' : 'pre',
                     }}
@@ -964,8 +991,8 @@ export default function HistoriasPage() {
                   </div>
                 ))}
 
-                {/* Trazos de dibujo */}
-                <svg className={styles.drawSvg} width={PREVIEW_W} height={PREVIEW_H}>
+                {/* Defs del filtro neón (una sola vez) */}
+                <svg width={0} height={0} style={{ position: 'absolute' }} aria-hidden>
                   <defs>
                     <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
                       <feGaussianBlur stdDeviation="3" result="b" />
@@ -976,44 +1003,30 @@ export default function HistoriasPage() {
                       </feMerge>
                     </filter>
                   </defs>
-                  {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => {
-                    const pts = s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ');
-                    if (s.glow) {
-                      return (
-                        <g key={si}>
-                          <polyline
-                            points={pts}
-                            fill="none"
-                            stroke={s.color}
-                            strokeWidth={s.width * SCALE}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            filter="url(#neonGlow)"
-                          />
-                          <polyline
-                            points={pts}
-                            fill="none"
-                            stroke="#ffffff"
-                            strokeWidth={Math.max(1, s.width * SCALE * 0.38)}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </g>
-                      );
-                    }
-                    return (
-                      <polyline
-                        key={si}
-                        points={pts}
-                        fill="none"
-                        stroke={s.color}
-                        strokeWidth={s.width * SCALE}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    );
-                  })}
                 </svg>
+
+                {/* Cada trazo en su propio SVG, con su z-index (para apilar sobre/bajo texto) */}
+                {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => {
+                  const pts = s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ');
+                  return (
+                    <svg
+                      key={si}
+                      className={styles.drawSvg}
+                      width={PREVIEW_W}
+                      height={PREVIEW_H}
+                      style={{ zIndex: s.z ?? 30 }}
+                    >
+                      {s.glow ? (
+                        <g>
+                          <polyline points={pts} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" filter="url(#neonGlow)" />
+                          <polyline points={pts} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, s.width * SCALE * 0.38)} strokeLinecap="round" strokeLinejoin="round" />
+                        </g>
+                      ) : (
+                        <polyline points={pts} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" />
+                      )}
+                    </svg>
+                  );
+                })}
               </div>
 
               {mode === 'select' && resolveBg(current) && (
@@ -1230,6 +1243,14 @@ export default function HistoriasPage() {
                         }
                       />
                     </label>
+                    <div className={styles.orderRow}>
+                      <button className={styles.ghostBtnSm} onClick={overlayToFront}>
+                        <BringToFront size={13} /> Al frente
+                      </button>
+                      <button className={styles.ghostBtnSm} onClick={overlayToBack}>
+                        <SendToBack size={13} /> Al fondo
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
@@ -1424,6 +1445,15 @@ export default function HistoriasPage() {
                         placeholder="ej. gratis, ahora"
                       />
                     </label>
+
+                    <div className={styles.orderRow}>
+                      <button className={styles.ghostBtnSm} onClick={layerToFront}>
+                        <BringToFront size={13} /> Al frente
+                      </button>
+                      <button className={styles.ghostBtnSm} onClick={layerToBack}>
+                        <SendToBack size={13} /> Al fondo
+                      </button>
+                    </div>
 
                     <p className={styles.hint}><Copy size={12} /> Arrastrá el texto sobre el lienzo para posicionarlo.</p>
                   </div>
