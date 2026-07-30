@@ -184,7 +184,7 @@
   position: relative;
   border-radius: var(--radius-md);
   overflow: hidden;
-  background: #0a0e0e;
+  background: var(--bg-color);
   border: 1px solid var(--card-border);
   touch-action: none;
   user-select: none;
@@ -233,7 +233,7 @@
   height: 96px;
   border-radius: var(--radius-sm);
   border: 2px solid var(--card-border);
-  background-color: #0a0e0e;
+  background-color: var(--bg-color);
   background-size: cover;
   background-position: center;
   cursor: pointer;
@@ -337,7 +337,7 @@
   aspect-ratio: 9 / 16;
   border-radius: var(--radius-sm);
   border: 2px solid var(--card-border);
-  background-color: #0a0e0e;
+  background-color: var(--bg-color);
   background-size: cover;
   background-position: center;
   cursor: pointer;

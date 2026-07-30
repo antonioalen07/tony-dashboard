@@ -242,7 +242,7 @@
   color: #04221e;
 }
 
-.scoreBadge.high { background: #2dd4bf; }
+.scoreBadge.high { background: var(--accent-secondary); }
 .scoreBadge.mid { background: #f0c44a; }
 .scoreBadge.low { background: #cbd5d1; }
 
