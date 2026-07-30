@@ -240,23 +240,30 @@ export default function VariantesPage() {
     }
   };
 
-  // ── Fuente (b): elegir reel existente → media_asset source 'reel' ─────────
+  // ── Fuente (b): elegir reel existente → bajar el mp4 real (Apify) a Storage ─
+  // El reels.video_url guardado es el permalink (la página del post), no un mp4.
+  // La ruta /api/assets/from-reel lo resuelve con Apify, lo baja y lo sube al
+  // bucket como archivo real, para que el worker pueda procesarlo con ffmpeg.
   const pickReel = async (reel: ReelRow) => {
     if (!reel.video_url) return;
     if (migrationNeeded) { toast('Ejecutá la migración del Studio primero', 'error'); return; }
     setPickingReelId(reel.id);
+    toast('Bajando el video del reel… puede tardar hasta un minuto', 'info');
     try {
-      const asset = await insertAsset({
-        kind: 'video',
-        filename: reel.title || 'reel',
-        storage_path: reel.video_url,
-        public_url: reel.video_url,
-        source: 'reel',
+      const res = await fetch('/api/assets/from-reel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reelId: reel.id }),
       });
-      if (asset) {
-        setSelectedAsset(asset);
-        toast('Reel seleccionado como base', 'success');
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data?.error || 'No se pudo preparar el reel', 'error');
+        return;
       }
+      setSelectedAsset(data.asset as MediaAsset);
+      toast('Reel listo como base', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo preparar el reel', 'error');
     } finally {
       setPickingReelId(null);
     }
