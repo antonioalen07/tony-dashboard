@@ -1,9 +1,11 @@
 # Worker de Crevy Studio — motor de variantes de video.
 # No expone puertos: es un proceso de polling contra Supabase.
-FROM node:20-slim
+# Node 22+ es obligatorio: @supabase/supabase-js 2.110+ usa WebSocket nativo
+# (realtime-js) que no existe en Node 20 y hace crashear createClient.
+FROM node:22-slim
 
 # ffmpeg-static trae su propio binario, así que NO necesitamos apt install ffmpeg.
-# Sólo hace falta que exista el runtime de glibc (node:20-slim ya lo tiene).
+# Sólo hace falta que exista el runtime de glibc (node:22-slim ya lo tiene).
 
 WORKDIR /app
 
