@@ -52,7 +52,7 @@
 }
 
 .badgeAccent {
-  color: #2dd4bf;
+  color: var(--accent-primary);
 }
 
 .overlay {
