@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
+import { compressVideo } from '@/lib/compressVideo';
 import {
   DEFAULT_VARIANT_PARAMS,
   type MediaAsset,
@@ -77,6 +78,7 @@ export default function VariantesPage() {
   // Fuente del video base
   const [mode, setMode] = useState<'upload' | 'reel'>('upload');
   const [uploading, setUploading] = useState(false);
+  const [compressPct, setCompressPct] = useState<number | null>(null);
   const [pasteUrl, setPasteUrl] = useState('');
   const [reels, setReels] = useState<ReelRow[]>([]);
   const [reelsLoaded, setReelsLoaded] = useState(false);
@@ -176,17 +178,35 @@ export default function VariantesPage() {
     return data as MediaAsset;
   }, [toast]);
 
-  const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300 MB (mismo límite que /api/assets)
+  const MAX_VIDEO_BYTES = 600 * 1024 * 1024;      // 600 MB: tope de entrada (antes de comprimir)
+  const COMPRESS_OVER_BYTES = 45 * 1024 * 1024;   // >45 MB → comprimir en el navegador para entrar en Storage (50 MB)
 
-  const handleFile = async (file: File) => {
-    if (!file) return;
+  const handleFile = async (rawFile: File) => {
+    if (!rawFile) return;
     if (migrationNeeded) { toast('Ejecutá la migración del Studio primero', 'error'); return; }
-    if (file.size > MAX_VIDEO_BYTES) {
-      toast('El video supera 300MB. Comprimilo o pegá una URL pública.', 'error');
+    if (rawFile.size > MAX_VIDEO_BYTES) {
+      toast('El video supera 600MB. Recortalo o pegá una URL pública.', 'error');
       return;
     }
     setUploading(true);
     try {
+      // Si es grande, comprimir EN EL NAVEGADOR antes de subir para no chocar con
+      // el límite de 50MB por archivo del Storage (plan free de Supabase).
+      let file = rawFile;
+      if (rawFile.size > COMPRESS_OVER_BYTES) {
+        setCompressPct(0);
+        toast('Comprimiendo el video en tu navegador… puede tardar un rato', 'info');
+        try {
+          file = await compressVideo(rawFile, (r) => setCompressPct(Math.round(r * 100)));
+        } catch (e) {
+          console.error('compressVideo error:', e);
+          toast('No se pudo comprimir el video acá. Probá con uno más corto o pegá una URL pública.', 'error');
+          return;
+        } finally {
+          setCompressPct(null);
+        }
+      }
+
       // Subida DIRECTA cliente → Supabase Storage: evita bufferear el archivo en el
       // server de Next (que colgaba con videos grandes) y es más confiable.
       const path = `uploads/${Date.now()}-${sanitize(file.name)}`;
@@ -197,7 +217,7 @@ export default function VariantesPage() {
         const sizeIssue = /exceed|maximum allowed size|payload too large|413/i.test(upErr.message);
         toast(
           sizeIssue
-            ? 'El video supera el límite de Storage. Subí el "Upload file size limit" del proyecto en Supabase (Settings → Storage) o pegá una URL pública.'
+            ? 'Aun comprimido el video supera el límite de Storage (50MB en plan free). Probá uno más corto o pegá una URL pública.'
             : `Error al subir: ${upErr.message}`,
           'error',
         );
@@ -428,7 +448,11 @@ export default function VariantesPage() {
                   disabled={uploading || migrationNeeded}
                 >
                   {uploading ? <Loader2 size={16} className={styles.spin} /> : <Upload size={16} />}
-                  {uploading ? 'Subiendo…' : 'Elegir archivo de video'}
+                  {compressPct !== null
+                    ? `Comprimiendo… ${compressPct}%`
+                    : uploading
+                      ? 'Subiendo…'
+                      : 'Elegir archivo de video'}
                 </button>
 
                 <div className={styles.orDivider}><span>o pegá una URL pública</span></div>
