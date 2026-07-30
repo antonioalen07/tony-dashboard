@@ -50,6 +50,21 @@ export async function POST(request: Request) {
     }
     const buffer = Buffer.from(await videoRes.arrayBuffer());
 
+    // 3b) Validar que sea realmente un video (no una página HTML/error). Si no,
+    //     avisamos acá en vez de dejar que el worker falle con "moov atom not found".
+    const head = buffer.subarray(0, 64);
+    const isMp4 = head.includes(Buffer.from('ftyp'));
+    const isWebm = head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
+    const contentType = videoRes.headers.get('content-type') || 'desconocido';
+    if (buffer.length < 50_000 || (!isMp4 && !isWebm && !/video|octet-stream/i.test(contentType))) {
+      return NextResponse.json(
+        {
+          error: `Apify no devolvió un video válido (${buffer.length} bytes, tipo "${contentType}"). Reintentá en unos segundos; si persiste, el reel puede ser privado o sin video.`,
+        },
+        { status: 502 },
+      );
+    }
+
     // 4) Subir al bucket `studio` como archivo real.
     const path = `sources/reel-${reelId}-${Date.now()}.mp4`;
     const { error: upErr } = await supabase.storage
