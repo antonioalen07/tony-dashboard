@@ -1,18 +1,16 @@
 import { ApifyClient } from 'apify-client';
 
 /**
- * Pipeline compartido de transcripción de un post/reel de Instagram:
- *   permalink -> Apify (obtiene el mp4) -> descarga -> ElevenLabs STT (Scribe).
- * Usado por /api/transcribe (reels propios) y /api/inspiration/adapt (bangers).
+ * Resuelve el mp4 real de un post/reel de Instagram a partir de su permalink,
+ * usando el actor `apify/instagram-scraper`. Devuelve una URL de CDN fresca
+ * (Apify re-scrapea al momento, así que no depende de que la URL de Meta venza).
+ * Reutilizado por la transcripción y por la generación de variantes desde reels.
  */
-export async function transcribeInstagramPost(postUrl: string): Promise<string> {
+export async function resolveInstagramVideoUrl(postUrl: string): Promise<string> {
   const apifyToken = process.env.APIFY_API_TOKEN;
-  const elevenKey = process.env.ELEVENLABS_API_KEY;
   if (!apifyToken) throw new Error('APIFY_API_TOKEN no configurada');
-  if (!elevenKey) throw new Error('ELEVENLABS_API_KEY no configurada');
   if (!postUrl?.startsWith('http')) throw new Error('URL de Instagram inválida');
 
-  // 1. Apify -> mp4 del post
   const apify = new ApifyClient({ token: apifyToken });
   const run = await apify.actor('apify/instagram-scraper').call({
     directUrls: [postUrl],
@@ -27,6 +25,20 @@ export async function transcribeInstagramPost(postUrl: string): Promise<string> 
   if (!videoUrl) {
     throw new Error('Apify no devolvió la URL del video (¿el post es público y tiene video?)');
   }
+  return videoUrl;
+}
+
+/**
+ * Pipeline compartido de transcripción de un post/reel de Instagram:
+ *   permalink -> Apify (obtiene el mp4) -> descarga -> ElevenLabs STT (Scribe).
+ * Usado por /api/transcribe (reels propios) y /api/inspiration/adapt (bangers).
+ */
+export async function transcribeInstagramPost(postUrl: string): Promise<string> {
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  if (!elevenKey) throw new Error('ELEVENLABS_API_KEY no configurada');
+
+  // 1. Apify -> mp4 del post
+  const videoUrl = await resolveInstagramVideoUrl(postUrl);
 
   // 2. Descargar el mp4
   const videoRes = await fetch(videoUrl);
