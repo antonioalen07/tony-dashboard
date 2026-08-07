@@ -148,10 +148,70 @@ NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / PUBLISH_DRY_RUN / WOR
 
 ## 5. Operación y mantenimiento
 
-- **Renovar token de Meta (antes de los ~60 días):** logueado, abrir
-  `/api/meta/token` en el navegador → copiar el `page_access_token` (no expira) o el
-  `long_lived_user_token` a `META_ACCESS_TOKEN` en Vercel → **Redeploy**. Mejor aún:
-  migrar a un **System User token** (Business Manager) que no expira.
+### 5.1 Meta: cómo funciona la auth (leer antes de tocar nada)
+
+**No hay ninguna Página de Facebook en el medio.** El código llama directo a la
+cuenta de Instagram, hardcodeada como `DEFAULT_IG_ACCOUNT_ID = '17841476480622974'`
+(@tony.ia_) en `sync`, `profile` y `audience`. Esto es clave para diagnosticar:
+
+- **`/me/accounts` vacío (`{"data":[]}`) es NORMAL.** No significa que falte
+  vincular una Página, ni que falten permisos, ni que falte "conectar activos" en
+  Business Manager. El token que funciona históricamente **nunca** tuvo páginas —
+  sus `granular_scopes` muestran `instagram_basic`/`instagram_manage_*` con
+  `target_ids: ["17841476480622974"]` directo, sin ninguna Página asociada.
+  No perseguir esto — cuesta horas y no lleva a nada.
+- **App correcta:** "Marca Tony Dashboard" (`META_APP_ID=1274716411094675`).
+  Existe otra app en la misma cuenta de Meta ("Crevy Content") que también
+  tiene acceso a la misma cuenta de Instagram — no confundirlas al generar
+  tokens en el Graph API Explorer.
+
+**Diagnóstico correcto de un token que falla — probarlo contra el endpoint real,
+no contra `/me/accounts`:**
+```
+GET https://graph.facebook.com/v20.0/17841476480622974?fields=followers_count,media_count,username&access_token=<TOKEN>
+```
+Si devuelve datos (`followers_count`, `username`, etc.), el token sirve. Si da error,
+mirar el `debug_token` para distinguir la causa:
+```
+GET https://graph.facebook.com/v20.0/debug_token?input_token=<TOKEN>&access_token=<APP_ID>|<APP_SECRET>
+```
+- `"is_valid": true` + fecha en `expires_at` → venció por tiempo, renovar (abajo).
+- `"error": {"code":190, "error_subcode":460}` → **la sesión se invalidó**, típicamente
+  porque cambiaste la contraseña de la cuenta de Facebook. No es un vencimiento normal
+  — pasa aunque el token tuviera `expires_at: 0` (duración "infinita"). Renovar igual
+  con un token fresco desde el Graph API Explorer.
+
+### 5.2 Renovar el token (dura ~60 días con un user token)
+
+1. Ir a [developers.facebook.com/tools/explorer](https://developers.facebook.com/tools/explorer).
+2. App de Meta: **"Marca Tony Dashboard"**. Usuario o página: **Token del usuario**.
+3. Generar token con permisos: `pages_show_list`, `instagram_basic`,
+   `instagram_manage_comments`, `instagram_manage_insights`, `instagram_content_publish`,
+   `instagram_manage_messages`, `pages_read_engagement`, `instagram_manage_contents`,
+   `instagram_manage_engagement`.
+4. Copiar ese token y pegarlo en:
+   `https://tony-dashboard-psi.vercel.app/api/meta/token?token=<TOKEN_FRESCO>`
+   → devuelve un `long_lived_user_token` (~60 días). Ignorar `page_tokens_no_expiran`
+   (siempre va a venir vacío, ver §5.1).
+5. Pegar el `long_lived_user_token` en `META_ACCESS_TOKEN` (Vercel) → **Redeploy**.
+
+### 5.3 Solución permanente: System User token (recomendado)
+
+Un **System User** del Business Manager no depende de tu sesión personal de
+Facebook — por eso **no se invalida si cambiás tu contraseña** (la causa real del
+corte de agosto 2026). El token no expira salvo revocación manual.
+
+1. [business.facebook.com/settings](https://business.facebook.com/settings) →
+   **Usuarios → Usuarios del sistema** → **+ Añadir** → crear uno (ej. `dashboard-api`,
+   rol Admin).
+2. Con el usuario creado → **Añadir activos** → tipo **Cuentas de Instagram** →
+   seleccionar la cuenta (`tony.ia_`) → **Control total**.
+3. En el mismo panel → **Generar nuevo token** → app **Marca Tony Dashboard** →
+   tildar los mismos permisos del §5.2 → **Generar**. El token se muestra
+   **una sola vez** — copiarlo ahí mismo.
+4. Pegarlo en `META_ACCESS_TOKEN` (Vercel) → **Redeploy**.
+
+Después de esto, `META_ACCESS_TOKEN` no debería volver a romperse.
 - **Publicación segura:** el worker arranca con `PUBLISH_DRY_RUN=1` → **NO** publica en
   Instagram, solo loguea. Cuando todo el flujo está validado, se quita esa variable.
 - **Storage:** limpiar variantes viejas cada tanto (tope 500 MB en plan free).
@@ -169,3 +229,75 @@ NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / PUBLISH_DRY_RUN / WOR
 4. [ ] Registrar el `GOOGLE_REDIRECT_URI` de producción en Google Cloud Console (si se usa Drive).
 5. [ ] (Opcional, para Variantes/publicar) Desplegar `worker/` en Easypanel con las env de Supabase + `PUBLISH_DRY_RUN=1`.
 6. [ ] Validar: login → sync de reels → análisis IA → crear una variante → ver el worker procesarla.
+
+---
+
+## 7. Variantes de video: qué detecta Instagram y qué sirve
+
+### 7.1 Cómo detecta Meta el contenido repetido
+
+No es un solo mecanismo, son tres capas que actúan distinto:
+
+1. **Embeddings visuales (SSCD, de Meta).** No es un hash clásico: es una red que
+   aprende "la esencia" de la imagen en un vector de 512 dimensiones. Está
+   entrenada justamente para aguantar recompresión, cambios de color, ruido y
+   recortes chicos. Es la capa que más nos afecta.
+2. **Fingerprint de audio** (estilo Content ID). Muy robusto y muy barato de
+   correr. Si el audio es idéntico, el match es prácticamente seguro.
+3. **Señales de cuenta y política de originalidad.** Desde 2025-2026 Meta bajó
+   el alcance de las cuentas que republican material sin transformarlo: no se
+   recomiendan a gente que no las sigue (fuera de Explorar y recomendaciones).
+   Esto se evalúa a nivel cuenta y comportamiento, no sólo por píxel.
+
+### 7.2 Los parámetros originales NO alcanzaban
+
+Los rangos que teníamos (saturación ±5%, contraste ±3%, velocidad ±2%, zoom
+hasta 2%, recorte inicial hasta 300 ms) están justo dentro de lo que estos
+sistemas están diseñados para tolerar. Un pHash aguanta esos cambios por
+construcción, y SSCD todavía más. En la práctica esas variantes se leían como
+el mismo video.
+
+### 7.3 Qué cambia de verdad la huella (de más a menos efectivo)
+
+| Cambio | Efecto real | Costo para vos |
+|---|---|---|
+| Texto en pantalla distinto | Alto: cambia píxeles en un área grande y le da gancho propio a cada versión | Ninguno, es contenido |
+| Audio distinto (voz en off, otro tema, otra música) | Alto: es la capa más determinante y la que no se rompe con filtros | Requiere editar |
+| Espejado horizontal | Alto en lo visual | Da vuelta textos/logos que ya estén en el video |
+| Recorte/zoom fuerte (5–10%) + reencuadre + micro-rotación | Medio-alto | Perdés algo de encuadre |
+| Cambiar los primeros 1–3 s (otro hook, otro orden) | Medio-alto, y además mejora la retención | Requiere editar |
+| Cambiar duración (recorte final) | Medio | Nada |
+| Velocidad ±4% + tono del audio | Medio (el fingerprint de audio no es robusto a cambios de tono) | Nada |
+| Color, contraste, saturación | Bajo | Nada |
+| Recomprimir / cambiar CRF, GOP, metadatos | Casi nulo contra SSCD, pero conviene igual | Nada |
+
+### 7.4 Qué aplica el worker hoy (`worker/ffmpeg.mjs`)
+
+Rangos por defecto ampliados + parámetros nuevos:
+
+- `saturation` 0.92–1.08 · `contrast` 0.95–1.06
+- `speed` 0.96–1.04 · `zoom` 1.03–1.09
+- `trimStartMs` 0–700 y **`trimEndMs` 0–600** (cambia la duración, no sólo el arranque)
+- **`rotate`** ±0.8° (con zoom extra automático para no dejar esquinas negras)
+- **`pan`** ±0.7 del margen disponible: el recorte no queda siempre centrado
+- **`pitch`** del audio (por defecto 1 = apagado; subilo a ±1-2% para molestar al fingerprint)
+- **`mirror`**: ninguna / la mitad / todas
+- **texto quemado distinto por variante**
+- `-map_metadata -1` + CRF y GOP con jitter por variante
+
+El texto **no** se dibuja con `drawtext`: el navegador rasteriza un PNG
+transparente del tamaño del video (`src/lib/variantText.ts`), lo sube al bucket
+`studio` y el worker sólo lo compone con `overlay`. Motivo: el escapado de `:` y
+`'` dentro del filtergraph se comporta distinto según el build de ffmpeg (el de
+Windows trunca el texto en silencio) y así tampoco hacen falta fuentes en el
+contenedor.
+
+### 7.5 Expectativa honesta
+
+Esto sube bastante la probabilidad de que dos variantes se lean como piezas
+distintas, pero **no es una garantía**: SSCD compara semántica, no píxeles, y si
+el video es el mismo plano con el mismo audio, hay una chance real de que igual
+lo agrupe. Lo que sí no falla es lo otro: variantes con hook, texto y audio
+propios no son "el mismo contenido" para nadie — ni para el detector ni para la
+audiencia. Usá los parámetros para el A/B rápido y el texto/audio para las
+versiones que de verdad quieras empujar.
