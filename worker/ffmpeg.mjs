@@ -65,7 +65,8 @@ export function buildVideoFilter(p) {
  * @param {string} inputPath
  * @param {string} outputPath
  * @param {import('../src/lib/studio-types').AppliedVariantParams} params
- * @param {{ hasAudio?: boolean, log?: (...a:any[])=>void, overlayPath?: string|null, durationSec?: number|null }} [opts]
+ * @param {{ hasAudio?: boolean, log?: (...a:any[])=>void, overlayPath?: string|null,
+ *           durationSec?: number|null, width?: number|null, height?: number|null }} [opts]
  * @returns {Promise<void>}
  */
 export async function transcodeVariant(inputPath, outputPath, params, opts = {}) {
@@ -83,13 +84,20 @@ export async function transcodeVariant(inputPath, outputPath, params, opts = {})
   args.push('-i', inputPath);
 
   if (opts.overlayPath) {
-    // El PNG del texto entra como segunda entrada; scale2ref (sin w/h: usa las
-    // del video de referencia) lo lleva a las dimensiones exactas del video,
-    // sin importar cuánto recortó el crop ni el aspecto del original.
+    // El PNG del texto entra como segunda entrada.
+    //
+    // NO usamos scale2ref: empareja frames entre sus dos entradas y el PNG
+    // aporta uno solo, así que según el build de ffmpeg propaga EOF al video y
+    // deja el mp4 sin stream de video (con exit code 0, encima). Además está
+    // deprecado desde 7.1. En su lugar forzamos ambos lados a las dimensiones
+    // del source con `scale` y componemos: `overlay` ya repite por defecto el
+    // último frame del overlay (eof_action=repeat), que es lo que queremos.
+    const { width, height } = opts;
+    const fit = width && height ? `,scale=${width}:${height}` : '';
     args.push('-i', opts.overlayPath);
     args.push(
       '-filter_complex',
-      `[0:v]${vf}[base];[1:v][base]scale2ref[ovr][base2];[base2][ovr]overlay=0:0[v]`,
+      `[0:v]${vf}${fit}[base];[1:v]${fit.slice(1) || 'null'}[ovr];[base][ovr]overlay=0:0[v]`,
       '-map', '[v]',
     );
     if (opts.hasAudio) args.push('-map', '0:a:0');
@@ -158,23 +166,32 @@ export function hasAudioStream(inputPath) {
 }
 
 /**
- * Duración en segundos del video (parseada del stderr de ffmpeg), o null.
- * La usamos para traducir "recortar N ms del final" a un `-t` concreto.
+ * Duración y dimensiones del video, parseadas del stderr de ffmpeg (sin ffprobe).
+ * La duración traduce "recortar N ms del final" a un `-t` concreto; las
+ * dimensiones alinean el PNG del texto con el video.
  * @param {string} inputPath
- * @returns {Promise<number|null>}
+ * @returns {Promise<{ durationSec: number|null, width: number|null, height: number|null, hasVideo: boolean }>}
  */
-export function probeDuration(inputPath) {
+export function probeVideo(inputPath) {
   return new Promise((resolve) => {
+    const empty = { durationSec: null, width: null, height: null, hasVideo: false };
     const child = spawn(ffmpegPath, ['-hide_banner', '-i', inputPath], {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d.toString(); });
-    child.on('error', () => resolve(null));
+    child.on('error', () => resolve(empty));
     child.on('close', () => {
-      const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
-      if (!m) return resolve(null);
-      resolve(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
+      const videoLine = /Stream #\d+:\d+.*: Video: .*/.exec(stderr)?.[0] ?? '';
+      // La primera resolución de la línea de video (evita el "[SAR 1:1 DAR 9:16]").
+      const dims = /,\s(\d{2,5})x(\d{2,5})[\s,]/.exec(videoLine);
+      const dur = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+      resolve({
+        durationSec: dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : null,
+        width: dims ? Number(dims[1]) : null,
+        height: dims ? Number(dims[2]) : null,
+        hasVideo: !!videoLine,
+      });
     });
   });
 }

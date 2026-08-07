@@ -10,7 +10,7 @@
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { transcodeVariant, hasAudioStream, probeDuration } from '../ffmpeg.mjs';
+import { transcodeVariant, hasAudioStream, probeVideo } from '../ffmpeg.mjs';
 
 const BUCKET = 'studio';
 
@@ -92,8 +92,9 @@ export async function run(ctx) {
     await writeFile(sourcePath, buf);
 
     const audio = await hasAudioStream(sourcePath);
-    const durationSec = await probeDuration(sourcePath);
-    log(`job ${job.id}: source ${buf.length} bytes, audio=${audio}, dur=${durationSec ?? '?'}s`);
+    const { durationSec, width, height, hasVideo } = await probeVideo(sourcePath);
+    if (!hasVideo) throw new Error('el video source no tiene stream de video (¿archivo corrupto?)');
+    log(`job ${job.id}: source ${buf.length} bytes, ${width}x${height}, audio=${audio}, dur=${durationSec ?? '?'}s`);
 
     const ranges = normalizeParams(job.params);
     const numVariants = clampInt(job.num_variants, 1, 20, 1);
@@ -120,8 +121,16 @@ export async function run(ctx) {
 
       const outPath = join(tmpDir, `variant-${i}.mp4`);
       await transcodeVariant(sourcePath, outPath, applied, {
-        hasAudio: audio, log, overlayPath, durationSec,
+        hasAudio: audio, log, overlayPath, durationSec, width, height,
       });
+
+      // ffmpeg puede salir 0 y dejar igual un mp4 sin stream de video (pasó con
+      // scale2ref). Verificamos antes de subir: mejor fallar el job que
+      // entregar variantes rotas como si estuvieran bien.
+      const out = await probeVideo(outPath);
+      if (!out.hasVideo) {
+        throw new Error(`la variante ${i + 1} salió sin stream de video (filtros: ${applied.text ? 'con' : 'sin'} texto)`);
+      }
 
       const outBuf = await readFile(outPath);
       const storagePath = `variants/${job.id}/${i}.mp4`;
