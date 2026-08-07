@@ -7,15 +7,22 @@ import {
   ArrowLeft, ArrowRight, Type, ImagePlus, Bold, Underline,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Highlighter,
   Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2, Sparkles,
-  BringToFront, SendToBack,
+  BringToFront, SendToBack, Magnet, Grid3x3, Spline,
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import MigrationBanner from '@/components/MigrationBanner';
 import DrivePicker from '@/components/DrivePicker';
 import {
-  renderSlideToPng, proxied, STORY_FONTS, CANVAS_W, CANVAS_H,
+  renderSlideToPng, proxied, strokePathD, STORY_FONTS, CANVAS_W, CANVAS_H,
 } from '@/lib/storyRender';
+import {
+  SAFE_X, SAFE_TOP, SAFE_BOTTOM, canvasTargets, computeSnap, rectToBox, boxAt,
+  type SnapTargets,
+} from '@/lib/snap';
+import { createSmoother, simplifyStroke, type Smoother } from '@/lib/drawSmooth';
 import type {
   StoryProject, StorySlide, StoryTextLayer, StoryImageOverlay, StoryDrawStroke,
   MediaAsset, TextAlign,
@@ -28,6 +35,8 @@ const RECOMMENDED_MIN = 4;
 const PREVIEW_W = 324; // px del preview; el lienzo real es 1080 → escala 0.3
 const PREVIEW_H = PREVIEW_W * (CANVAS_H / CANVAS_W);
 const SCALE = PREVIEW_W / CANVAS_W;
+/** Radio de imantación del snap, en px del preview. */
+const SNAP_PX = 7;
 
 /** Slide editable: extiende StorySlide con la URL de fondo resuelta (persistida en el JSONB). */
 interface EditableSlide extends StorySlide {
@@ -173,16 +182,37 @@ export default function HistoriasPage() {
   const [drawColor, setDrawColor] = useState('#ffd60a');
   const [drawWidth, setDrawWidth] = useState(14); // px sobre el lienzo 1080
   const [drawGlow, setDrawGlow] = useState(true);
+  const [smoothing, setSmoothing] = useState(0.8); // 0 = crudo, 1 = máxima asistencia
   const [liveStroke, setLiveStroke] = useState<StoryDrawStroke | null>(null);
   const liveRef = useRef<StoryDrawStroke | null>(null);
+  const smootherRef = useRef<Smoother | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [showOverlayPicker, setShowOverlayPicker] = useState(false);
+
+  // Guías de alineación
+  const [snapOn, setSnapOn] = useState(true);
+  const [showGuides, setShowGuides] = useState(false);
+  const [activeGuides, setActiveGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
 
   // Texto crudo de los campos de palabras (para no comerse las comas al tipear).
   const [uwText, setUwText] = useState('');
   const [hwText, setHwText] = useState('');
 
   const previewRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ kind: 'layer' | 'overlay'; idx: number } | null>(null);
+  /**
+   * Arrastre en curso. Guardamos el ancla y el puntero iniciales (para conservar
+   * el punto donde agarraste el elemento) y los offsets de su caja respecto del
+   * ancla — así el snap funciona igual para texto (ancla arriba-centro) que para
+   * imágenes (ancla al centro), sin casos especiales.
+   */
+  const dragRef = useRef<{
+    kind: 'layer' | 'overlay';
+    idx: number;
+    ax: number; ay: number; // ancla al empezar
+    px: number; py: number; // puntero al empezar
+    ox0: number; ox1: number; oy0: number; oy1: number; // caja ↔ ancla
+    targets: SnapTargets;
+  } | null>(null);
   const bgDragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const bgFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
@@ -277,23 +307,24 @@ export default function HistoriasPage() {
   const patchSlide = (idx: number, patch: Partial<EditableSlide>) =>
     setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
 
-  const patchLayer = (sIdx: number, lIdx: number, patch: Partial<StoryTextLayer>) =>
+  // Estables (useCallback) porque el atajo de teclado los usa dentro de un effect.
+  const patchLayer = useCallback((sIdx: number, lIdx: number, patch: Partial<StoryTextLayer>) =>
     setSlides((prev) =>
       prev.map((s, i) =>
         i === sIdx
           ? { ...s, layers: s.layers.map((l, j) => (j === lIdx ? { ...l, ...patch } : l)) }
           : s,
       ),
-    );
+    ), []);
 
-  const patchOverlay = (sIdx: number, oIdx: number, patch: Partial<StoryImageOverlay>) =>
+  const patchOverlay = useCallback((sIdx: number, oIdx: number, patch: Partial<StoryImageOverlay>) =>
     setSlides((prev) =>
       prev.map((s, i) =>
         i === sIdx
           ? { ...s, overlays: (s.overlays ?? []).map((o, j) => (j === oIdx ? { ...o, ...patch } : o)) }
           : s,
       ),
-    );
+    ), []);
 
   const resolveBg = useCallback(
     (slide: EditableSlide): string => {
@@ -567,12 +598,36 @@ export default function HistoriasPage() {
   const drawingsToBack = () => patchSlide(slideIdx, { strokes: (current.strokes ?? []).map((s) => ({ ...s, z: bottomZ() })) });
 
   // ── Drag / dibujo sobre el preview ──────────────────────────────────────
-  const previewPoint = (e: React.PointerEvent) => {
+  const pointFrom = (clientX: number, clientY: number) => {
     const rect = previewRef.current!.getBoundingClientRect();
     return {
-      x: clamp01((e.clientX - rect.left) / rect.width),
-      y: clamp01((e.clientY - rect.top) / rect.height),
+      x: clamp01((clientX - rect.left) / rect.width),
+      y: clamp01((clientY - rect.top) / rect.height),
     };
+  };
+  const previewPoint = (e: React.PointerEvent) => pointFrom(e.clientX, e.clientY);
+
+  /** Mide la caja de un elemento del lienzo (texto/imagen) en fracciones 0..1. */
+  const measureBox = (key: string) => {
+    const host = previewRef.current;
+    const el = host?.querySelector<HTMLElement>(`[data-snapbox="${key}"]`);
+    if (!host || !el) return null;
+    return rectToBox(el.getBoundingClientRect(), host.getBoundingClientRect());
+  };
+
+  /** Guías del lienzo + bordes y centros del resto de los elementos del slide. */
+  const buildTargets = (excludeKey: string): SnapTargets => {
+    const targets = canvasTargets();
+    const host = previewRef.current;
+    if (!host) return targets;
+    const hostRect = host.getBoundingClientRect();
+    host.querySelectorAll<HTMLElement>('[data-snapbox]').forEach((el) => {
+      if (el.dataset.snapbox === excludeKey) return;
+      const b = rectToBox(el.getBoundingClientRect(), hostRect);
+      targets.v.push(b.left, b.cx, b.right);
+      targets.h.push(b.top, b.cy, b.bottom);
+    });
+    return targets;
   };
 
   const startDrag = (kind: 'layer' | 'overlay', idx: number) => (e: React.PointerEvent) => {
@@ -585,15 +640,46 @@ export default function HistoriasPage() {
       setOverlayIdx(idx);
       setLayerIdx(null);
     }
-    dragRef.current = { kind, idx };
+    const key = `${kind}-${idx}`;
+    const anchor = kind === 'layer' ? current.layers[idx] : (current.overlays ?? [])[idx];
+    const box = measureBox(key);
+    const p = previewPoint(e);
+    dragRef.current = {
+      kind,
+      idx,
+      ax: anchor?.x ?? p.x,
+      ay: anchor?.y ?? p.y,
+      px: p.x,
+      py: p.y,
+      ox0: box ? box.left - (anchor?.x ?? p.x) : 0,
+      ox1: box ? box.right - (anchor?.x ?? p.x) : 0,
+      oy0: box ? box.top - (anchor?.y ?? p.y) : 0,
+      oy1: box ? box.bottom - (anchor?.y ?? p.y) : 0,
+      targets: buildTargets(key),
+    };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  // El live stroke se re-renderiza como mucho una vez por frame (dibujar a 240Hz
+  // con un setState por evento traba el preview).
+  const scheduleLiveRender = () => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const live = liveRef.current;
+      if (live) setLiveStroke({ ...live, points: [...live.points] });
+    });
   };
 
   const onPreviewPointerDown = (e: React.PointerEvent) => {
     if (!previewRef.current) return;
     if (mode === 'draw') {
       previewRef.current.setPointerCapture?.(e.pointerId);
-      const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, z: topZ(), points: [previewPoint(e)] };
+      const start = previewPoint(e);
+      const smoother = createSmoother(smoothing);
+      smoother.reset(start);
+      smootherRef.current = smoother;
+      const stroke: StoryDrawStroke = { color: drawColor, width: drawWidth, glow: drawGlow, z: topZ(), points: [start] };
       liveRef.current = stroke;
       setLiveStroke(stroke);
       return;
@@ -613,10 +699,19 @@ export default function HistoriasPage() {
 
   const onPreviewPointerMove = (e: React.PointerEvent) => {
     if (mode === 'draw') {
-      if (!liveRef.current) return;
-      const next = { ...liveRef.current, points: [...liveRef.current.points, previewPoint(e)] };
-      liveRef.current = next;
-      setLiveStroke(next);
+      const live = liveRef.current;
+      const smoother = smootherRef.current;
+      if (!live || !smoother) return;
+      // getCoalescedEvents: el navegador acumula los movimientos entre frames;
+      // usarlos todos le da más material al filtro y sale un trazo más parejo.
+      const native = e.nativeEvent as PointerEvent;
+      const raw = native.getCoalescedEvents?.() ?? [];
+      const samples = raw.length ? raw : [native];
+      for (const s of samples) {
+        const pt = smoother.push(pointFrom(s.clientX, s.clientY));
+        if (pt) live.points.push(pt);
+      }
+      scheduleLiveRender();
       return;
     }
     if (bgDragRef.current && previewRef.current) {
@@ -634,21 +729,126 @@ export default function HistoriasPage() {
     const d = dragRef.current;
     if (!d || !previewRef.current) return;
     const p = previewPoint(e);
-    if (d.kind === 'layer') patchLayer(slideIdx, d.idx, { x: p.x, y: p.y });
-    else patchOverlay(slideIdx, d.idx, { x: p.x, y: p.y });
+    // Conserva el punto por donde agarraste el elemento (no lo centra en el cursor).
+    let ax = clamp01(d.ax + (p.x - d.px));
+    let ay = clamp01(d.ay + (p.y - d.py));
+
+    // Alt mantenido = arrastre libre, sin imantación (igual que en Figma).
+    if (snapOn && !e.altKey) {
+      const snap = computeSnap(boxAt(ax, ay, d), d.targets, SNAP_PX / PREVIEW_W, SNAP_PX / PREVIEW_H);
+      ax += snap.dx;
+      ay += snap.dy;
+      setActiveGuides({ v: snap.guidesV, h: snap.guidesH });
+    } else if (activeGuides.v.length || activeGuides.h.length) {
+      setActiveGuides({ v: [], h: [] });
+    }
+
+    if (d.kind === 'layer') patchLayer(slideIdx, d.idx, { x: ax, y: ay });
+    else patchOverlay(slideIdx, d.idx, { x: ax, y: ay });
   };
 
   const onPreviewPointerUp = () => {
     if (mode === 'draw' && liveRef.current) {
-      const committed = liveRef.current;
+      const live = liveRef.current;
+      const tail = smootherRef.current?.finish();
+      if (tail) live.points.push(tail);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      // Al guardar simplificamos: mismo trazo con muchos menos puntos en el JSONB.
+      const committed: StoryDrawStroke = { ...live, points: simplifyStroke(live.points) };
       liveRef.current = null;
+      smootherRef.current = null;
       setLiveStroke(null);
       patchSlide(slideIdx, { strokes: [...(current.strokes ?? []), committed] });
       return;
     }
     bgDragRef.current = null;
     dragRef.current = null;
+    setActiveGuides({ v: [], h: [] });
   };
+
+  // ── Alineación rápida (botones del inspector) ────────────────────────────
+  type AlignTo = 'left' | 'hcenter' | 'right' | 'top' | 'vmiddle' | 'bottom';
+
+  /** Pega el elemento seleccionado a una guía del lienzo, sin tener que arrastrarlo. */
+  const alignSelected = (to: AlignTo) => {
+    const kind = layerIdx != null ? 'layer' : overlayIdx != null ? 'overlay' : null;
+    if (!kind) return;
+    const idx = (kind === 'layer' ? layerIdx : overlayIdx) as number;
+    const anchor = kind === 'layer' ? current.layers[idx] : (current.overlays ?? [])[idx];
+    const box = measureBox(`${kind}-${idx}`);
+    if (!anchor || !box) return;
+
+    const off = {
+      ox0: box.left - anchor.x,
+      ox1: box.right - anchor.x,
+      oy0: box.top - anchor.y,
+      oy1: box.bottom - anchor.y,
+    };
+    const w = off.ox1 - off.ox0;
+    const h = off.oy1 - off.oy0;
+
+    let patch: Partial<StoryTextLayer & StoryImageOverlay>;
+    switch (to) {
+      case 'left': patch = { x: clamp01(SAFE_X - off.ox0) }; break;
+      case 'hcenter': patch = { x: clamp01(0.5 - off.ox0 - w / 2) }; break;
+      case 'right': patch = { x: clamp01(1 - SAFE_X - off.ox1) }; break;
+      case 'top': patch = { y: clamp01(SAFE_TOP - off.oy0) }; break;
+      case 'vmiddle': patch = { y: clamp01(0.5 - off.oy0 - h / 2) }; break;
+      case 'bottom': patch = { y: clamp01(SAFE_BOTTOM - off.oy1) }; break;
+    }
+    if (kind === 'layer') patchLayer(slideIdx, idx, patch);
+    else patchOverlay(slideIdx, idx, patch);
+  };
+
+  const alignBtnsCanvas: { to: AlignTo; icon: React.ReactNode; title: string }[] = [
+    { to: 'left', icon: <AlignStartVertical size={14} />, title: 'Pegar al margen izquierdo' },
+    { to: 'hcenter', icon: <AlignCenterVertical size={14} />, title: 'Centrar horizontalmente' },
+    { to: 'right', icon: <AlignEndVertical size={14} />, title: 'Pegar al margen derecho' },
+    { to: 'top', icon: <AlignStartHorizontal size={14} />, title: 'Pegar arriba (zona segura)' },
+    { to: 'vmiddle', icon: <AlignCenterHorizontal size={14} />, title: 'Centrar verticalmente' },
+    { to: 'bottom', icon: <AlignEndHorizontal size={14} />, title: 'Pegar abajo (zona segura)' },
+  ];
+
+  /** Fila de botones de alineación, compartida por texto e imágenes. */
+  const alignRow = (
+    <div className={styles.alignRow}>
+      <span className={styles.alignLabel}>Alinear</span>
+      <div className={styles.toggleGroup}>
+        {alignBtnsCanvas.map((b) => (
+          <button key={b.to} className={styles.iconToggle} onClick={() => alignSelected(b.to)} title={b.title}>
+            {b.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Flechas del teclado: mueve 1px del lienzo real (Shift = 10px).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (mode !== 'select') return;
+      if (layerIdx == null && overlayIdx == null) return;
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      const step = e.shiftKey ? 10 : 1;
+      const dx = (e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0) / CANVAS_W;
+      const dy = (e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0) / CANVAS_H;
+      if (!dx && !dy) return;
+      e.preventDefault();
+      if (layerIdx != null) {
+        const l = current?.layers[layerIdx];
+        if (l) patchLayer(slideIdx, layerIdx, { x: clamp01(l.x + dx), y: clamp01(l.y + dy) });
+      } else if (overlayIdx != null) {
+        const o = current?.overlays?.[overlayIdx];
+        if (o) patchOverlay(slideIdx, overlayIdx, { x: clamp01(o.x + dx), y: clamp01(o.y + dy) });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, layerIdx, overlayIdx, slideIdx, current, patchLayer, patchOverlay]);
 
   // Rueda del mouse sobre el lienzo: zoom del overlay seleccionado, o del fondo.
   useEffect(() => {
@@ -863,6 +1063,26 @@ export default function HistoriasPage() {
                 >
                   <Pencil size={15} /> Dibujar
                 </button>
+                {mode === 'select' && (
+                  <div className={styles.drawTools}>
+                    <button
+                      className={styles.iconToggle}
+                      data-on={snapOn}
+                      onClick={() => setSnapOn((v) => !v)}
+                      title="Imantar a las guías (mantené Alt para moverlo libre)"
+                    >
+                      <Magnet size={15} /> Imantar
+                    </button>
+                    <button
+                      className={styles.iconToggle}
+                      data-on={showGuides}
+                      onClick={() => setShowGuides((v) => !v)}
+                      title="Ver guías y márgenes (no se exportan)"
+                    >
+                      <Grid3x3 size={15} /> Guías
+                    </button>
+                  </div>
+                )}
                 {mode === 'draw' && (
                   <div className={styles.drawTools}>
                     <input
@@ -880,6 +1100,16 @@ export default function HistoriasPage() {
                       onChange={(e) => setDrawWidth(Number(e.target.value))}
                       title="Grosor"
                     />
+                    <label className={styles.smoothCtl} title="Asistencia de fluidez: filtra el temblor del mouse">
+                      <Spline size={14} />
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(smoothing * 100)}
+                        onChange={(e) => setSmoothing(Number(e.target.value) / 100)}
+                      />
+                    </label>
                     <button
                       className={styles.iconToggle}
                       data-on={drawGlow}
@@ -931,6 +1161,18 @@ export default function HistoriasPage() {
                   <div className={styles.previewEmpty}>Sin fondo</div>
                 )}
 
+                {/* Guías fijas: márgenes de seguridad + centro (solo edición) */}
+                {showGuides && mode === 'select' && (
+                  <div className={styles.gridOverlay} aria-hidden>
+                    <span className={styles.gridV} style={{ left: `${SAFE_X * 100}%` }} />
+                    <span className={styles.gridV} style={{ left: '50%' }} data-center="true" />
+                    <span className={styles.gridV} style={{ left: `${(1 - SAFE_X) * 100}%` }} />
+                    <span className={styles.gridH} style={{ top: `${SAFE_TOP * 100}%` }} />
+                    <span className={styles.gridH} style={{ top: '50%' }} data-center="true" />
+                    <span className={styles.gridH} style={{ top: `${SAFE_BOTTOM * 100}%` }} />
+                  </div>
+                )}
+
                 {/* Imágenes superpuestas */}
                 {(current.overlays ?? []).map((ov, j) => {
                   const wPx = ov.w * PREVIEW_W;
@@ -938,6 +1180,7 @@ export default function HistoriasPage() {
                   return (
                     <div
                       key={`ov-${j}`}
+                      data-snapbox={`overlay-${j}`}
                       className={`${styles.overlayImg} ${j === overlayIdx && mode === 'select' ? styles.overlayImgActive : ''}`}
                       style={{
                         left: `${ov.x * 100}%`,
@@ -965,6 +1208,7 @@ export default function HistoriasPage() {
                 {current.layers.map((l, j) => (
                   <div
                     key={j}
+                    data-snapbox={`layer-${j}`}
                     className={`${styles.layerBox} ${j === layerIdx && mode === 'select' ? styles.layerBoxActive : ''}`}
                     style={{
                       left: `${l.x * 100}%`,
@@ -1007,7 +1251,7 @@ export default function HistoriasPage() {
 
                 {/* Cada trazo en su propio SVG, con su z-index (para apilar sobre/bajo texto) */}
                 {[...(current.strokes ?? []), ...(liveStroke ? [liveStroke] : [])].map((s, si) => {
-                  const pts = s.points.map((p) => `${p.x * PREVIEW_W},${p.y * PREVIEW_H}`).join(' ');
+                  const d = strokePathD(s.points, PREVIEW_W, PREVIEW_H);
                   return (
                     <svg
                       key={si}
@@ -1018,19 +1262,39 @@ export default function HistoriasPage() {
                     >
                       {s.glow ? (
                         <g>
-                          <polyline points={pts} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" filter="url(#neonGlow)" />
-                          <polyline points={pts} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, s.width * SCALE * 0.38)} strokeLinecap="round" strokeLinejoin="round" />
+                          <path d={d} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" filter="url(#neonGlow)" />
+                          <path d={d} fill="none" stroke="#ffffff" strokeWidth={Math.max(1, s.width * SCALE * 0.38)} strokeLinecap="round" strokeLinejoin="round" />
                         </g>
                       ) : (
-                        <polyline points={pts} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={d} fill="none" stroke={s.color} strokeWidth={s.width * SCALE} strokeLinecap="round" strokeLinejoin="round" />
                       )}
                     </svg>
                   );
                 })}
+
+                {/* Guías activas del snap (aparecen solo mientras arrastrás) */}
+                {activeGuides.v.map((x, i) => (
+                  <span key={`gv${i}`} className={styles.snapV} style={{ left: `${x * 100}%` }} aria-hidden />
+                ))}
+                {activeGuides.h.map((y, i) => (
+                  <span key={`gh${i}`} className={styles.snapH} style={{ top: `${y * 100}%` }} aria-hidden />
+                ))}
               </div>
 
-              {mode === 'select' && resolveBg(current) && (
-                <p className={styles.hint}>Arrastrá el fondo para reencuadrarlo · rueda del mouse para acercar/alejar</p>
+              {mode === 'select' && (
+                <>
+                  {resolveBg(current) && (
+                    <p className={styles.hint}>Arrastrá el fondo para reencuadrarlo · rueda del mouse para acercar/alejar</p>
+                  )}
+                  <p className={styles.hint}>
+                    <Magnet size={12} /> Texto e imágenes se imantan al centro y a los márgenes · Alt = libre · flechas = 1px (Shift = 10px)
+                  </p>
+                </>
+              )}
+              {mode === 'draw' && (
+                <p className={styles.hint}>
+                  <Spline size={12} /> Subí la asistencia de fluidez si te tiembla el pulso; bajala si querés el trazo tal cual.
+                </p>
               )}
 
               <div className={styles.slideStrip}>
@@ -1243,6 +1507,7 @@ export default function HistoriasPage() {
                         }
                       />
                     </label>
+                    {alignRow}
                     <div className={styles.orderRow}>
                       <button className={styles.ghostBtnSm} onClick={overlayToFront}>
                         <BringToFront size={13} /> Al frente
@@ -1446,6 +1711,7 @@ export default function HistoriasPage() {
                       />
                     </label>
 
+                    {alignRow}
                     <div className={styles.orderRow}>
                       <button className={styles.ghostBtnSm} onClick={layerToFront}>
                         <BringToFront size={13} /> Al frente
@@ -1455,7 +1721,7 @@ export default function HistoriasPage() {
                       </button>
                     </div>
 
-                    <p className={styles.hint}><Copy size={12} /> Arrastrá el texto sobre el lienzo para posicionarlo.</p>
+                    <p className={styles.hint}><Copy size={12} /> Arrastrá el texto sobre el lienzo: se pega solo al centro y a los márgenes.</p>
                   </div>
                 )}
               </div>
