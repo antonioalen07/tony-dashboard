@@ -22,26 +22,36 @@ export interface RenderTextOptions {
   height: number;
 }
 
-/** Lee las dimensiones reales del video; si no puede, asume 9:16 de 1080. */
-export function getVideoSize(url: string): Promise<{ width: number; height: number }> {
+export interface VideoMeta {
+  width: number;
+  height: number;
+  /** Duración en segundos, o null si no se pudo leer. */
+  duration: number | null;
+}
+
+/** Lee dimensiones y duración del video; si no puede, asume 9:16 de 1080. */
+export function getVideoMeta(url: string): Promise<VideoMeta> {
   return new Promise((resolve) => {
-    const fallback = { width: 1080, height: 1920 };
+    const fallback: VideoMeta = { width: 1080, height: 1920, duration: null };
     if (typeof document === 'undefined') return resolve(fallback);
     const video = document.createElement('video');
-    const done = (size: { width: number; height: number }) => {
+    let settled = false;
+    const done = (meta: VideoMeta) => {
+      if (settled) return;
+      settled = true;
       video.removeAttribute('src');
       video.load();
-      resolve(size);
+      resolve(meta);
     };
     video.preload = 'metadata';
     video.muted = true;
     video.crossOrigin = 'anonymous';
     video.onloadedmetadata = () =>
-      done(
-        video.videoWidth && video.videoHeight
-          ? { width: video.videoWidth, height: video.videoHeight }
-          : fallback,
-      );
+      done({
+        width: video.videoWidth || fallback.width,
+        height: video.videoHeight || fallback.height,
+        duration: Number.isFinite(video.duration) ? video.duration : null,
+      });
     video.onerror = () => done(fallback);
     // Si el video no responde, no bloqueamos la generación del job.
     setTimeout(() => done(fallback), 6000);

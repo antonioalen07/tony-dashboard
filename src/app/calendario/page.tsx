@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CalendarDays, ChevronLeft, ChevronRight, Shuffle, Zap, Loader2, Clock,
+  CalendarDays, ChevronLeft, ChevronRight, Shuffle, Zap, Loader2, Clock, Text,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
@@ -64,6 +64,7 @@ export default function CalendarioPage() {
   const now = new Date();
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [captionId, setCaptionId] = useState<string | null>(null);
   // Cancela el guardado en blur cuando el cierre del input viene de Escape.
   const skipBlurSave = useRef(false);
 
@@ -132,6 +133,24 @@ export default function CalendarioPage() {
     toast('Fecha actualizada', 'success');
   };
 
+  const saveCaption = async (id: string, value: string) => {
+    const caption = value.trim() || null;
+    const { error } = await supabase.from('publish_queue').update({ caption }).eq('id', id);
+    if (error) {
+      // La columna es nueva: si la base no la tiene, decimos qué falta.
+      toast(
+        /caption/i.test(error.message || '')
+          ? 'Falta la columna `caption`: volvé a correr supabase_migration_studio.sql'
+          : 'No se pudo guardar el caption',
+        'error',
+      );
+      return;
+    }
+    patch(id, { caption });
+    setCaptionId(null);
+    toast('Caption guardado', 'success');
+  };
+
   const publishNow = async (id: string) => {
     const iso = new Date().toISOString();
     const { error } = await supabase.from('publish_queue').update({ scheduled_at: iso }).eq('id', id);
@@ -179,7 +198,25 @@ export default function CalendarioPage() {
       <span className={styles.chipDot} aria-hidden="true" />
       <span className={styles.chipTime}>{it.scheduled_at ? timeOf(it.scheduled_at) : '—'}</span>
       <span className={styles.chipKind}>{it.kind}</span>
-      {editingId === it.id ? (
+      {captionId === it.id ? (
+        <textarea
+          className={styles.captionBox}
+          defaultValue={it.caption ?? ''}
+          rows={4}
+          maxLength={2200}
+          autoFocus
+          placeholder="Caption del post…"
+          onBlur={(e) => {
+            if (skipBlurSave.current) { skipBlurSave.current = false; setCaptionId(null); return; }
+            saveCaption(it.id, e.target.value);
+          }}
+          onKeyDown={(e) => {
+            // Enter con Ctrl/Cmd guarda; Enter solo hace salto de línea.
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
+            if (e.key === 'Escape') { skipBlurSave.current = true; e.currentTarget.blur(); }
+          }}
+        />
+      ) : editingId === it.id ? (
         <input
           className={styles.chipInput}
           type="datetime-local"
@@ -199,6 +236,14 @@ export default function CalendarioPage() {
         <div className={styles.chipActions}>
           <button className={styles.chipBtn} title="Editar fecha" onClick={() => setEditingId(it.id)}>
             <Clock size={12} />
+          </button>
+          <button
+            className={styles.chipBtn}
+            data-on={!!it.caption}
+            title={it.caption ? `Caption: ${it.caption.slice(0, 80)}` : 'Sin caption — clic para escribirlo'}
+            onClick={() => setCaptionId(it.id)}
+          >
+            <Text size={12} />
           </button>
           {it.status === 'pending' && (
             <button className={styles.chipBtn} title="Publicar ahora" onClick={() => publishNow(it.id)}>

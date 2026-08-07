@@ -444,15 +444,71 @@
 }
 
 .textRows { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
-.textRow { display: flex; align-items: center; gap: 0.5rem; }
+.textRow,
+.textHead {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 92px 62px 62px;
+  align-items: center;
+  gap: 0.5rem;
+}
+.textHead {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.textTimeHead { text-align: center; }
 .textRowNum {
-  width: 26px;
-  flex-shrink: 0;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
 }
-.textRow .urlInput { flex: 1; min-width: 0; }
+.textRow .urlInput { min-width: 0; }
+.timeInput {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 6px 6px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  text-align: center;
+  outline: none;
+}
+.timeInput:focus { border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--surface-border)); }
+.timeInput::placeholder { color: var(--text-secondary); }
+@media (max-width: 560px) {
+  .textHead { display: none; }
+  .textRow { grid-template-columns: 26px minmax(0, 1fr); grid-auto-rows: min-content; }
+  .textRow .select,
+  .textRow .timeInput { grid-column: 2; }
+}
+
+/* Caption del post */
+.captionInput {
+  width: 100%;
+  resize: vertical;
+  min-height: 46px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 7px 9px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+}
+.captionInput:focus { border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--surface-border)); }
+.captionInput::placeholder { color: var(--text-secondary); }
+.captionInput:disabled { opacity: 0.55; cursor: not-allowed; }
+.captionCount {
+  align-self: flex-end;
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+}
 
 .textSide { display: flex; flex-direction: column; gap: 0.7rem; }
 

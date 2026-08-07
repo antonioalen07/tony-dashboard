@@ -109,7 +109,13 @@ export async function run(ctx) {
       applied.mirror = mirror === 'all' || (mirror === 'some' && i % 2 === 1);
       const t = texts[i];
       applied.text = t && String(t.text || '').trim()
-        ? { text: String(t.text), position: t.position || 'top', style: textStyle }
+        ? {
+            text: String(t.text),
+            position: t.position || 'top',
+            startSec: Number(t.startSec) || 0,
+            endSec: Number.isFinite(Number(t.endSec)) ? Number(t.endSec) : null,
+            style: textStyle,
+          }
         : null;
 
       // El PNG del texto lo rasteriza el navegador al crear el job; acá sólo lo

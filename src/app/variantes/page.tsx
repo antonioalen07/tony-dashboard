@@ -10,7 +10,7 @@ import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
 import { compressVideo } from '@/lib/compressVideo';
 import { STORY_FONTS } from '@/lib/storyRender';
-import { renderVariantTextPng, getVideoSize } from '@/lib/variantText';
+import { renderVariantTextPng, getVideoMeta, type VideoMeta } from '@/lib/variantText';
 import {
   DEFAULT_VARIANT_PARAMS,
   DEFAULT_VARIANT_TEXT_STYLE,
@@ -93,7 +93,13 @@ const TEXT_POSITIONS: { value: VariantTextPosition; label: string }[] = [
   { value: 'bottom', label: 'Abajo' },
 ];
 
-const emptyText = (): VariantText => ({ text: '', position: 'top' });
+const emptyText = (): VariantText => ({ text: '', position: 'top', startSec: 0, endSec: null });
+
+/** "12.5" → 12.5 · "" → null (campo vacío = sin límite). */
+const parseSec = (v: string): number | null => {
+  const n = Number(v.replace(',', '.'));
+  return v.trim() === '' || !Number.isFinite(n) || n < 0 ? null : n;
+};
 
 /** Devuelve el rango de un param, con fallback al default (los nuevos son opcionales). */
 const rangeOf = (p: VariantParams, key: RangeKey): [number, number] =>
@@ -134,6 +140,10 @@ export default function VariantesPage() {
   const [texts, setTexts] = useState<VariantText[]>(() => Array.from({ length: 10 }, emptyText));
   const [textStyle, setTextStyle] = useState<VariantTextStyle>(() => structuredClone(DEFAULT_VARIANT_TEXT_STYLE));
   const [previewIdx, setPreviewIdx] = useState(0);
+  const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
+
+  // Captions por variante (índice de la variante → texto del post)
+  const [captions, setCaptions] = useState<Record<string, string>>({});
 
   // Job activo + variantes
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -330,6 +340,16 @@ export default function VariantesPage() {
     }
   };
 
+  // Dimensiones y duración del video base: alinean el PNG del texto con el
+  // video y acotan los tiempos de aparición que se pueden pedir.
+  useEffect(() => {
+    const url = selectedAsset?.public_url;
+    if (!url) return;
+    let cancelled = false;
+    getVideoMeta(url).then((m) => { if (!cancelled) setVideoMeta(m); });
+    return () => { cancelled = true; };
+  }, [selectedAsset]);
+
   // ── Textos: rasterizar en el navegador y subirlos al bucket ───────────────
   // El worker sólo compone el PNG con `overlay`, así no depende de las fuentes
   // ni del escapado de drawtext del build de ffmpeg que le toque.
@@ -337,7 +357,7 @@ export default function VariantesPage() {
     const wanted = texts.slice(0, numVariants);
     if (!wanted.some((t) => t.text.trim())) return [];
 
-    const { width, height } = await getVideoSize(selectedAsset!.public_url);
+    const { width, height } = videoMeta ?? (await getVideoMeta(selectedAsset!.public_url));
     const out: VariantText[] = [];
     for (let i = 0; i < numVariants; i++) {
       const t = wanted[i] ?? emptyText();
@@ -345,6 +365,10 @@ export default function VariantesPage() {
         out.push({ text: '', position: t.position });
         continue;
       }
+      // Un "hasta" que no supera al "desde" es un rango imposible: lo ignoramos
+      // y el texto queda hasta el final, que es lo que espera cualquiera.
+      const startSec = t.startSec ?? 0;
+      const endSec = t.endSec != null && t.endSec > startSec ? t.endSec : null;
       const blob = await renderVariantTextPng({
         text: t.text, position: t.position, style: textStyle, width, height,
       });
@@ -354,10 +378,10 @@ export default function VariantesPage() {
         .upload(path, blob, { contentType: 'image/png', upsert: true });
       if (error) throw new Error(`No se pudo subir el texto de la variante ${i + 1}: ${error.message}`);
       const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
-      out.push({ ...t, overlayUrl: pub.publicUrl });
+      out.push({ ...t, startSec, endSec, overlayUrl: pub.publicUrl });
     }
     return out;
-  }, [texts, numVariants, textStyle, selectedAsset]);
+  }, [texts, numVariants, textStyle, selectedAsset, videoMeta]);
 
   // ── Crear el job de variantes ─────────────────────────────────────────────
   const createJob = async () => {
@@ -404,14 +428,27 @@ export default function VariantesPage() {
   const sendToCalendar = async (v: VariantRow) => {
     setSendingId(v.id);
     try {
+      const caption = (captions[v.id] ?? '').trim();
       const { error } = await supabase.from('publish_queue').insert({
         variant_id: v.id,
         kind: 'trial_reel',
         status: 'pending',
         scheduled_at: null,
+        caption: caption || null,
       });
       if (isMissingTable(error)) { setMigrationNeeded(true); return; }
-      if (error) { toast(error.message || 'No se pudo encolar', 'error'); return; }
+      if (error) {
+        // La columna `caption` es nueva: si la base todavía no la tiene, avisamos
+        // qué falta en vez de tirar el error crudo de Postgres.
+        const falta = /caption/i.test(error.message || '');
+        toast(
+          falta
+            ? 'Falta la columna `caption`: volvé a correr supabase_migration_studio.sql'
+            : error.message || 'No se pudo encolar',
+          'error',
+        );
+        return;
+      }
       setSentIds((prev) => new Set(prev).add(v.id));
       toast('Enviada al calendario como reel de prueba', 'success');
     } finally {
@@ -429,6 +466,8 @@ export default function VariantesPage() {
     setParams(structuredClone(DEFAULT_VARIANT_PARAMS));
     setTexts(Array.from({ length: 10 }, emptyText));
     setMirror('none');
+    setVideoMeta(null);
+    setCaptions({});
   };
 
   const setRange = (key: RangeKey, idx: 0 | 1, value: number) => {
@@ -497,7 +536,7 @@ export default function VariantesPage() {
                 </a>
               )}
             </div>
-            <button className={styles.ghostBtn} onClick={() => setSelectedAsset(null)}>
+            <button className={styles.ghostBtn} onClick={() => { setSelectedAsset(null); setVideoMeta(null); }}>
               <X size={15} /> Cambiar
             </button>
           </div>
@@ -717,6 +756,13 @@ export default function VariantesPage() {
 
         <div className={styles.textLayout}>
           <div className={styles.textRows}>
+            <div className={styles.textHead}>
+              <span className={styles.textRowNum} />
+              <span>Texto</span>
+              <span>Posición</span>
+              <span className={styles.textTimeHead}>Desde</span>
+              <span className={styles.textTimeHead}>Hasta</span>
+            </div>
             {Array.from({ length: numVariants }, (_, i) => (
               <div key={i} className={styles.textRow}>
                 <span className={styles.textRowNum}>#{i + 1}</span>
@@ -737,8 +783,33 @@ export default function VariantesPage() {
                     <option key={p.value} value={p.value}>{p.label}</option>
                   ))}
                 </select>
+                <input
+                  className={styles.timeInput}
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={texts[i]?.startSec ?? ''}
+                  onChange={(e) => setText(i, { startSec: parseSec(e.target.value) ?? 0 })}
+                  placeholder="0"
+                  aria-label={`Segundo en que aparece el texto de la variante ${i + 1}`}
+                />
+                <input
+                  className={styles.timeInput}
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={texts[i]?.endSec ?? ''}
+                  onChange={(e) => setText(i, { endSec: parseSec(e.target.value) })}
+                  placeholder="fin"
+                  aria-label={`Segundo en que desaparece el texto de la variante ${i + 1}`}
+                />
               </div>
             ))}
+            <p className={styles.hint}>
+              Los tiempos van en segundos del video final. Dejá <strong>Hasta</strong> vacío para que
+              el texto quede hasta el final
+              {videoMeta?.duration ? ` (el video dura ${videoMeta.duration.toFixed(1)} s)` : ''}.
+            </p>
           </div>
 
           <div className={styles.textSide}>
@@ -931,6 +1002,20 @@ export default function VariantesPage() {
                         </span>
                       )}
                     </div>
+                    <textarea
+                      className={styles.captionInput}
+                      value={captions[v.id] ?? ''}
+                      onChange={(e) => setCaptions((prev) => ({ ...prev, [v.id]: e.target.value }))}
+                      placeholder="Caption del post (opcional)…"
+                      rows={2}
+                      maxLength={2200}
+                      disabled={sentIds.has(v.id)}
+                    />
+                    {(captions[v.id]?.length ?? 0) > 1900 && (
+                      <span className={styles.captionCount}>
+                        {captions[v.id].length}/2200
+                      </span>
+                    )}
                     <div className={styles.variantActions}>
                       {v.media_assets?.public_url && (
                         <a

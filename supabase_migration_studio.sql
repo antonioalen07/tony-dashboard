@@ -81,6 +81,12 @@ CREATE TABLE IF NOT EXISTS public.publish_queue (
 CREATE INDEX IF NOT EXISTS idx_publish_queue_due
     ON public.publish_queue(status, scheduled_at);
 
+-- Texto del post (lo manda el publicador como `caption` a la Graph API).
+-- ALTER separado para que la migración siga siendo re-ejecutable sobre bases
+-- que ya tenían la tabla creada antes de existir esta columna.
+ALTER TABLE public.publish_queue
+    ADD COLUMN IF NOT EXISTS caption TEXT;
+
 -- ----------------------------------------------------------------------------
 -- 6) Tokens de Google (Drive OAuth). Fila única.
 -- ----------------------------------------------------------------------------

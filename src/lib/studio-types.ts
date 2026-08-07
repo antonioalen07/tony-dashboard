@@ -117,6 +117,10 @@ export interface VariantTextStyle {
 export interface VariantText {
   text: string;
   position: VariantTextPosition;
+  /** Segundo del video final en que aparece el texto. 0 / vacío = desde el arranque. */
+  startSec?: number;
+  /** Segundo en que desaparece. null = queda hasta el final. */
+  endSec?: number | null;
   /**
    * PNG transparente con el texto ya rasterizado por el navegador, subido al
    * bucket `studio`. El worker sólo lo compone con `overlay` — así no dependemos
@@ -232,6 +236,8 @@ export interface PublishQueueItem {
   error: string | null;
   published_at: string | null;
   created_at: string;
+  /** Texto del post; el publicador lo manda como `caption` a la Graph API. */
+  caption: string | null;
 }
 
 // ── Google Drive ────────────────────────────────────────────────────────────

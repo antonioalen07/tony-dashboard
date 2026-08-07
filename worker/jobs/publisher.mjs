@@ -35,12 +35,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * DRY RUN es el comportamiento por defecto y seguro.
- * Sólo se publica de verdad cuando la variable NO está seteada en absoluto
- * (`undefined`). Cualquier valor presente — incluso vacío o "0" — mantiene el
- * modo simulado, para no publicar nunca por accidente.
+ *
+ * Se publica de verdad cuando `PUBLISH_DRY_RUN` está ausente **o apagada
+ * explícitamente** (`''`, `'0'`, `'false'`, `'no'`). Cualquier otro valor mantiene
+ * el modo simulado.
+ *
+ * El string vacío cuenta como apagada a propósito: paneles como Easypanel a veces
+ * "borran" una variable dejando la clave con valor vacío, lo que con un chequeo de
+ * `!== undefined` dejaba el worker en dry run para siempre sin forma de notarlo.
  */
 function isDryRun(env) {
-  return env.PUBLISH_DRY_RUN !== undefined;
+  const raw = env.PUBLISH_DRY_RUN;
+  if (raw === undefined) return false;
+  return !['', '0', 'false', 'no'].includes(String(raw).trim().toLowerCase());
 }
 
 /** Construye el payload de creación de contenedor, idéntico en dry-run y real. */
@@ -49,6 +56,10 @@ function buildContainerPayload(item, videoUrl) {
     media_type: 'REELS',
     video_url: videoUrl,
   };
+  // Texto del post. Instagram corta en 2200 caracteres, así que lo recortamos
+  // acá en vez de dejar que la Graph API rechace el contenedor entero.
+  const caption = String(item.caption ?? '').trim();
+  if (caption) payload.caption = caption.slice(0, 2200);
   if (item.kind === 'trial_reel') {
     // Reel de prueba: se gradúa manualmente (no auto-publica al feed).
     payload.trial_params = { graduation_strategy: 'MANUAL' };
@@ -198,7 +209,12 @@ async function cleanupOldStorage(supabase, log) {
 async function run(ctx) {
   const { supabase, env, log } = ctx;
   const dry = isDryRun(env);
-  log(`[publisher] corriendo en modo ${dry ? 'DRY RUN' : 'REAL'}`);
+  // Logueamos el valor crudo: sin esto, un PUBLISH_DRY_RUN='' es indistinguible
+  // de uno ausente en los logs y el diagnóstico se vuelve adivinanza.
+  log(
+    `[publisher] corriendo en modo ${dry ? 'DRY RUN' : 'REAL'} ` +
+      `(PUBLISH_DRY_RUN=${JSON.stringify(env.PUBLISH_DRY_RUN)})`,
+  );
 
   const nowIso = new Date().toISOString();
   const { data: due, error: dueErr } = await supabase

@@ -97,7 +97,8 @@ export async function transcodeVariant(inputPath, outputPath, params, opts = {})
     args.push('-i', opts.overlayPath);
     args.push(
       '-filter_complex',
-      `[0:v]${vf}${fit}[base];[1:v]${fit.slice(1) || 'null'}[ovr];[base][ovr]overlay=0:0[v]`,
+      `[0:v]${vf}${fit}[base];[1:v]${fit.slice(1) || 'null'}[ovr];`
+        + `[base][ovr]overlay=0:0${buildOverlayEnable(params.text)}[v]`,
       '-map', '[v]',
     );
     if (opts.hasAudio) args.push('-map', '0:a:0');
@@ -131,6 +132,25 @@ export async function transcodeVariant(inputPath, outputPath, params, opts = {})
   args.push(outputPath);
 
   return runFfmpeg(args, log);
+}
+
+/**
+ * Sufijo `:enable=…` del overlay para que el texto aparezca sólo en un tramo.
+ * Devuelve '' si el texto va durante todo el video.
+ *
+ * `t` acá ya es tiempo de SALIDA (el `setpts` de la cadena corre antes), así que
+ * los segundos son los que el usuario ve en el video final. Las comas van
+ * escapadas: dentro de un filtergraph separan filtros.
+ * @param {import('../src/lib/studio-types').AppliedVariantParams['text']} text
+ */
+export function buildOverlayEnable(text) {
+  const start = clampNum(text?.startSec, 0, 86400, 0);
+  const rawEnd = text?.endSec == null ? null : clampNum(text.endSec, 0, 86400, 0);
+  // Un fin que no supera al inicio es un rango sin sentido: lo dejamos permanente.
+  const end = rawEnd != null && rawEnd > start ? rawEnd : null;
+  if (start <= 0 && end == null) return '';
+  if (end == null) return `:enable=gte(t\\,${fmt(start)})`;
+  return `:enable=between(t\\,${fmt(start)}\\,${fmt(end)})`;
 }
 
 /** Cadena `-af`: tempo + (opcional) cambio de tono conservando el tempo pedido. */
