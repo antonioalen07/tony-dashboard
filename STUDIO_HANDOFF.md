@@ -24,8 +24,17 @@
 - **Acciones del usuario**:
   1. `gh auth login` (para que los agentes/PRs se creen solos; el `git push` ya funciona sin esto).
   2. Google Cloud Console: agregar redirect URI `http://localhost:3000/api/google/callback`, habilitar Drive API, agregarse como test user.
-  3. Meta: confirmar que el token tenga permiso `instagram_business_content_publish` (hoy quizás solo lee métricas).
+  3. ~~Meta: confirmar permiso de publicación~~ ✅ **hecho (2026-08-07)**. El token
+     ya tiene `instagram_content_publish` + `publish_video` con `target_ids` al IG
+     `17841476480622974`. Todo el proceso de generar/renovar el token de Meta está
+     documentado en **`INFORME_SISTEMA.md` §5** (diagnóstico, renovación y System User
+     token permanente). **Leer §5.1 antes de debuggear**: `/me/accounts` vacío es
+     normal, este setup no usa Páginas de Facebook.
   4. Deploy del `worker/` en Easypanel (Contabo) cuando esté (README lo explica).
+  5. **Para publicar de verdad** (hoy NO publica, está en dry run — ver `INFORME_SISTEMA.md` §5.4):
+     en Easypanel, **borrar** la env `PUBLISH_DRY_RUN` (ponerla en `0` no alcanza: el
+     código chequea `!== undefined`) y **agregar** `META_ACCESS_TOKEN` al worker — no
+     hereda las env de Vercel. El publicador corre cada 15 min, no al instante.
 
 ---
 

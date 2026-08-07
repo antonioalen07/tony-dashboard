@@ -123,8 +123,15 @@ GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI
 # Acceso al dashboard
 AUTH_USERS / AUTH_SECRET
 # Worker (Easypanel)
-NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / PUBLISH_DRY_RUN / WORKER_POLL_MS
+NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / WORKER_POLL_MS
+META_ACCESS_TOKEN / META_IG_ACCOUNT_ID   # ← necesarios para publicar de verdad
+PUBLISH_DRY_RUN                           # ← ver §5.4: su sola presencia bloquea la publicación
 ```
+
+⚠️ El worker **no comparte env vars con Vercel**. El `META_ACCESS_TOKEN` que se
+carga en Vercel sirve para las lecturas de la app (sync, métricas), pero la
+publicación la hace el worker desde el VPS — necesita su **propia copia** del token
+en Easypanel. Al renovar el token hay que actualizarlo en **los dos lados**.
 
 ---
 
@@ -213,8 +220,43 @@ corte de agosto 2026). El token no expira salvo revocación manual.
 
 Después de esto, `META_ACCESS_TOKEN` no debería volver a romperse.
 
+### 5.4 Activar la publicación real (por qué "programo y no pasa nada")
+
+Por defecto el sistema **nunca publica en Instagram**. Si programaste algo y no
+aparece nada, casi siempre es una de estas tres — en este orden:
+
+1. **Modo DRY RUN activo.** `worker/jobs/publisher.mjs` decide así:
+   ```js
+   function isDryRun(env) { return env.PUBLISH_DRY_RUN !== undefined; }
+   ```
+   **La sola presencia de la variable activa el modo simulado.** Ponerla en `0`,
+   en `false` o vacía **NO alcanza** — hay que **borrarla por completo** de las env
+   vars del worker en Easypanel. En dry run el item se marca `published` con un
+   `ig_media_id` sintético `DRYRUN-<uuid>`: en el calendario se ve "publicado" pero
+   en Instagram no hay nada. **Ese `DRYRUN-` en la DB es la confirmación del modo.**
+2. **Al worker le falta `META_ACCESS_TOKEN`.** `publishReal()` lo lee de su propio
+   entorno. Si se saca el dry run sin cargar el token en Easypanel, el item queda
+   `failed` con `falta META_ACCESS_TOKEN para publicar en modo real`.
+3. **El publicador corre cada 15 minutos** (`intervalMs = 15 * 60 * 1000`), y sólo
+   toma items `pending` con `scheduled_at <= now`. No es instantáneo: entre que
+   vence la fecha y que el worker lo levanta pueden pasar hasta 15 min.
+
+**Diagnóstico rápido por SQL** (Supabase → SQL editor):
+```sql
+select id, kind, status, scheduled_at, ig_media_id, error
+from publish_queue order by created_at desc limit 10;
+```
+- `pending` con `scheduled_at` ya vencido → el worker no lo levantó todavía
+  (esperar hasta 15 min) o el worker está caído (ver logs en Easypanel).
+- `published` con `ig_media_id` que empieza en `DRYRUN-` → **dry run**, punto 1.
+- `failed` → leer la columna `error`, dice exactamente qué pasó.
+
+Para verificar si el worker está vivo sin entrar a Easypanel: mirar `variant_jobs`
+— si hay jobs pasando a `done` con `updated_at` reciente, el proceso está corriendo.
+
 - **Publicación segura:** el worker arranca con `PUBLISH_DRY_RUN=1` → **NO** publica en
-  Instagram, solo loguea. Cuando todo el flujo está validado, se quita esa variable.
+  Instagram, solo loguea. Cuando todo el flujo está validado, se **borra** esa variable
+  (ver §5.4) y se carga `META_ACCESS_TOKEN` en el worker.
 - **Storage:** limpiar variantes viejas cada tanto (tope 500 MB en plan free).
 - **Miniaturas de reels rotas:** las URLs de Instagram vencen → re-sincronizar.
 - **Deploy del worker:** `push` a `main` + **Deploy** en Easypanel. Verificar en los
