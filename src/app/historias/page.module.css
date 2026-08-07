@@ -458,6 +458,61 @@
   margin-left: auto;
 }
 .drawTools input[type='range'] { width: 80px; }
+.smoothCtl {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.5rem;
+  height: 34px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.smoothCtl input[type='range'] { width: 70px; }
+
+/* ---- Guías de alineación (solo edición: nunca se exportan) ---- */
+.gridOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+}
+.gridV,
+.gridH {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent-primary) 32%, transparent);
+}
+.gridV { top: 0; bottom: 0; width: 1px; }
+.gridH { left: 0; right: 0; height: 1px; }
+.gridV[data-center='true'],
+.gridH[data-center='true'] {
+  background: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+}
+.snapV,
+.snapH {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9999;
+  background: #ff3ea5;
+  box-shadow: 0 0 6px rgba(255, 62, 165, 0.8);
+}
+.snapV { top: 0; bottom: 0; width: 1px; }
+.snapH { left: 0; right: 0; height: 1px; }
+
+/* ---- Alineación rápida ---- */
+.alignRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+.alignLabel {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+.alignRow .iconToggle { width: 30px; height: 30px; }
 
 /* ---- Fondo: acciones + brillo ---- */
 .bgActions {

@@ -97,24 +97,87 @@ export interface StoryProject {
 }
 
 // ── Variantes de video ──────────────────────────────────────────────────────
+/** Posición vertical del texto quemado sobre la variante. */
+export type VariantTextPosition = 'top' | 'center' | 'bottom';
+
+/** Estilo compartido por todos los textos quemados de un job. */
+export interface VariantTextStyle {
+  /** Tamaño como fracción de la altura del video (0.03–0.12). */
+  size: number;
+  color: string;
+  /** Familia tipográfica (una de STORY_FONTS). */
+  font: string;
+  /** Caja de fondo detrás del texto (mejora la lectura sobre cualquier imagen). */
+  box: boolean;
+  boxColor: string;
+  boxOpacity: number; // 0..1
+}
+
+/** Texto quemado en UNA variante. `text` vacío = esa variante no lleva texto. */
+export interface VariantText {
+  text: string;
+  position: VariantTextPosition;
+  /**
+   * PNG transparente con el texto ya rasterizado por el navegador, subido al
+   * bucket `studio`. El worker sólo lo compone con `overlay` — así no dependemos
+   * del soporte de fuentes ni del escapado de `drawtext` del build de ffmpeg.
+   */
+  overlayUrl?: string | null;
+}
+
+export const DEFAULT_VARIANT_TEXT_STYLE: VariantTextStyle = {
+  size: 0.055,
+  color: '#ffffff',
+  font: 'Inter',
+  box: true,
+  boxColor: '#000000',
+  boxOpacity: 0.45,
+};
+
+/** Cuántas variantes se espejan horizontalmente. */
+export type MirrorMode = 'none' | 'some' | 'all';
+
 /**
  * Rangos de re-edición que el worker aplica aleatoriamente por variante.
  * Cada par [min, max]; el worker sortea un valor dentro del rango por variante.
+ *
+ * Los rangos por defecto son deliberadamente amplios: los detectores de
+ * duplicados de Meta usan embeddings visuales (tipo SSCD), que son robustos a
+ * cambios de color/compresión mínimos. Ver INFORME_SISTEMA.md.
  */
 export interface VariantParams {
-  saturation: [number, number]; // ej. [0.95, 1.05]
-  contrast: [number, number]; // ej. [0.97, 1.03]
-  trimStartMs: [number, number]; // ej. [0, 300]
-  speed: [number, number]; // ej. [0.98, 1.02]
-  zoom: [number, number]; // ej. [1.0, 1.02]
+  saturation: [number, number]; // ej. [0.92, 1.08]
+  contrast: [number, number]; // ej. [0.95, 1.06]
+  trimStartMs: [number, number]; // ej. [0, 700]
+  speed: [number, number]; // ej. [0.96, 1.04]
+  zoom: [number, number]; // ej. [1.03, 1.09]
+  /** Recorte del final en ms: cambia la duración, no solo el arranque. */
+  trimEndMs?: [number, number];
+  /** Rotación en grados; se compensa con zoom extra para no dejar bordes negros. */
+  rotate?: [number, number];
+  /** Desplazamiento del encuadre dentro del zoom, como fracción del margen disponible (-1..1). */
+  pan?: [number, number];
+  /** Cambio de tono del audio como factor (1 = sin cambio). Molesta al fingerprint de audio. */
+  pitch?: [number, number];
+  /** Espejado horizontal. Ojo: da vuelta cualquier texto que ya esté en el video. */
+  mirror?: MirrorMode;
+  /** Estilo de los textos quemados. */
+  textStyle?: VariantTextStyle;
+  /** Texto por variante (índice = nº de variante). Los que falten van sin texto. */
+  texts?: VariantText[];
 }
 
 export const DEFAULT_VARIANT_PARAMS: VariantParams = {
-  saturation: [0.95, 1.05],
-  contrast: [0.97, 1.03],
-  trimStartMs: [0, 300],
-  speed: [0.98, 1.02],
-  zoom: [1.0, 1.02],
+  saturation: [0.92, 1.08],
+  contrast: [0.95, 1.06],
+  trimStartMs: [0, 700],
+  speed: [0.96, 1.04],
+  zoom: [1.03, 1.09],
+  trimEndMs: [0, 600],
+  rotate: [-0.8, 0.8],
+  pan: [-0.7, 0.7],
+  pitch: [1, 1],
+  mirror: 'none',
 };
 
 export type JobStatus = 'pending' | 'processing' | 'done' | 'failed';
@@ -137,6 +200,14 @@ export interface AppliedVariantParams {
   trimStartMs: number;
   speed: number;
   zoom: number;
+  trimEndMs?: number;
+  rotate?: number;
+  panX?: number;
+  panY?: number;
+  pitch?: number;
+  mirror?: boolean;
+  /** Texto quemado en esta variante (null = ninguno). */
+  text?: (VariantText & { style: VariantTextStyle }) | null;
 }
 
 export interface VideoVariant {

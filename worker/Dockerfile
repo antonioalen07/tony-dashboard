@@ -6,6 +6,8 @@ FROM node:22-slim
 
 # ffmpeg-static trae su propio binario, así que NO necesitamos apt install ffmpeg.
 # Sólo hace falta que exista el runtime de glibc (node:22-slim ya lo tiene).
+# Tampoco hacen falta fuentes: el texto de las variantes llega ya rasterizado
+# como PNG desde el navegador y se compone con el filtro `overlay`.
 
 WORKDIR /app
 

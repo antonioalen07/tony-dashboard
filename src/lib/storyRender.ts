@@ -225,15 +225,39 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
   });
 }
 
+/**
+ * Path SVG de un trazo, suavizado con cuadráticas por punto medio (el clásico
+ * "midpoint smoothing"): cada punto capturado es el control de una curva que
+ * termina en el punto medio del siguiente tramo. Elimina los codos del polyline.
+ *
+ * Lo usan tanto el canvas del export (vía Path2D) como el preview del editor,
+ * así lo que ves mientras dibujás es exactamente lo que se exporta.
+ */
+export function strokePathD(
+  points: { x: number; y: number }[],
+  w = CANVAS_W,
+  h = CANVAS_H,
+): string {
+  const n = points.length;
+  if (n === 0) return '';
+  const px = (i: number) => (points[i].x * w).toFixed(2);
+  const py = (i: number) => (points[i].y * h).toFixed(2);
+  // Un solo punto: segmento mínimo para que el lineCap redondo pinte el "punto".
+  if (n === 1) return `M ${px(0)} ${py(0)} l 0.1 0`;
+  if (n === 2) return `M ${px(0)} ${py(0)} L ${px(1)} ${py(1)}`;
+
+  let d = `M ${px(0)} ${py(0)}`;
+  for (let i = 1; i < n - 1; i++) {
+    const mx = ((points[i].x + points[i + 1].x) / 2) * w;
+    const my = ((points[i].y + points[i + 1].y) / 2) * h;
+    d += ` Q ${px(i)} ${py(i)} ${mx.toFixed(2)} ${my.toFixed(2)}`;
+  }
+  return `${d} L ${px(n - 1)} ${py(n - 1)}`;
+}
+
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: StoryDrawStroke): void {
   if (stroke.points.length < 1) return;
-  const buildPath = () => {
-    ctx.beginPath();
-    const [first, ...rest] = stroke.points;
-    ctx.moveTo(first.x * CANVAS_W, first.y * CANVAS_H);
-    if (rest.length === 0) ctx.lineTo(first.x * CANVAS_W + 0.1, first.y * CANVAS_H);
-    else for (const p of rest) ctx.lineTo(p.x * CANVAS_W, p.y * CANVAS_H);
-  };
+  const path = new Path2D(strokePathD(stroke.points));
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -244,24 +268,20 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: StoryDrawStroke): voi
     ctx.shadowBlur = Math.max(10, stroke.width * 1.6);
     ctx.strokeStyle = stroke.color;
     ctx.lineWidth = stroke.width;
-    buildPath();
-    ctx.stroke();
-    buildPath();
-    ctx.stroke();
+    ctx.stroke(path);
+    ctx.stroke(path);
     // Núcleo brillante encima, sin sombra.
     ctx.shadowBlur = 0;
     ctx.strokeStyle = 'rgba(255,255,255,0.92)';
     ctx.lineWidth = Math.max(1, stroke.width * 0.38);
-    buildPath();
-    ctx.stroke();
+    ctx.stroke(path);
     ctx.restore();
     return;
   }
 
   ctx.strokeStyle = stroke.color;
   ctx.lineWidth = stroke.width;
-  buildPath();
-  ctx.stroke();
+  ctx.stroke(path);
 }
 
 /** Traza (sin pintar) un rectángulo redondeado; usa ctx.roundRect si existe. */

@@ -10,18 +10,31 @@
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { transcodeVariant, hasAudioStream } from '../ffmpeg.mjs';
+import { transcodeVariant, hasAudioStream, probeDuration } from '../ffmpeg.mjs';
 
 const BUCKET = 'studio';
 
 // Fallback local por si no se puede importar studio-types.ts (worker sin TS).
 // Debe coincidir con DEFAULT_VARIANT_PARAMS de src/lib/studio-types.ts.
 const DEFAULT_VARIANT_PARAMS = {
-  saturation: [0.95, 1.05],
-  contrast: [0.97, 1.03],
-  trimStartMs: [0, 300],
-  speed: [0.98, 1.02],
-  zoom: [1.0, 1.02],
+  saturation: [0.92, 1.08],
+  contrast: [0.95, 1.06],
+  trimStartMs: [0, 700],
+  speed: [0.96, 1.04],
+  zoom: [1.03, 1.09],
+  trimEndMs: [0, 600],
+  rotate: [-0.8, 0.8],
+  pan: [-0.7, 0.7],
+  pitch: [1, 1],
+};
+
+// Debe coincidir con DEFAULT_VARIANT_TEXT_STYLE de src/lib/studio-types.ts.
+const DEFAULT_TEXT_STYLE = {
+  size: 0.055,
+  color: '#ffffff',
+  box: true,
+  boxColor: '#000000',
+  boxOpacity: 0.45,
 };
 
 export const name = 'variants';
@@ -79,16 +92,36 @@ export async function run(ctx) {
     await writeFile(sourcePath, buf);
 
     const audio = await hasAudioStream(sourcePath);
-    log(`job ${job.id}: source ${buf.length} bytes, audio=${audio}`);
+    const durationSec = await probeDuration(sourcePath);
+    log(`job ${job.id}: source ${buf.length} bytes, audio=${audio}, dur=${durationSec ?? '?'}s`);
 
     const ranges = normalizeParams(job.params);
     const numVariants = clampInt(job.num_variants, 1, 20, 1);
+    const mirror = ['none', 'some', 'all'].includes(job.params?.mirror) ? job.params.mirror : 'none';
+    const textStyle = { ...DEFAULT_TEXT_STYLE, ...(job.params?.textStyle || {}) };
+    const texts = Array.isArray(job.params?.texts) ? job.params.texts : [];
 
     // 4) Generar cada variante.
     for (let i = 0; i < numVariants; i++) {
       const applied = sampleApplied(ranges);
+      // Espejado: 'some' alterna (mitad sí, mitad no) para poder comparar.
+      applied.mirror = mirror === 'all' || (mirror === 'some' && i % 2 === 1);
+      const t = texts[i];
+      applied.text = t && String(t.text || '').trim()
+        ? { text: String(t.text), position: t.position || 'top', style: textStyle }
+        : null;
+
+      // El PNG del texto lo rasteriza el navegador al crear el job; acá sólo lo
+      // bajamos. Si falla, la variante sale sin texto en vez de romper el job.
+      let overlayPath = null;
+      if (applied.text && t.overlayUrl) {
+        overlayPath = await downloadOverlay(t.overlayUrl, join(tmpDir, `overlay-${i}.png`), log);
+      }
+
       const outPath = join(tmpDir, `variant-${i}.mp4`);
-      await transcodeVariant(sourcePath, outPath, applied, { hasAudio: audio, log });
+      await transcodeVariant(sourcePath, outPath, applied, {
+        hasAudio: audio, log, overlayPath, durationSec,
+      });
 
       const outBuf = await readFile(outPath);
       const storagePath = `variants/${job.id}/${i}.mp4`;
@@ -167,6 +200,19 @@ async function downloadAsset(supabase, asset, log) {
   throw new Error(`asset ${asset.id} sin storage_path ni public_url utilizables`);
 }
 
+/** Baja el PNG del texto de una variante. Devuelve la ruta local o null. */
+async function downloadOverlay(url, destPath, log) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await writeFile(destPath, Buffer.from(await res.arrayBuffer()));
+    return destPath;
+  } catch (err) {
+    log(`AVISO: no pude bajar el texto ${url} (${err.message}); la variante sale sin texto.`);
+    return null;
+  }
+}
+
 /** Normaliza params del job a rangos válidos [min,max], con fallback al default. */
 function normalizeParams(params) {
   const p = params && typeof params === 'object' ? params : {};
@@ -193,6 +239,11 @@ function sampleApplied(ranges) {
     trimStartMs: Math.round(rand(ranges.trimStartMs)),
     speed: round4(rand(ranges.speed)),
     zoom: round4(rand(ranges.zoom)),
+    trimEndMs: Math.round(rand(ranges.trimEndMs)),
+    rotate: round4(rand(ranges.rotate)),
+    panX: round4(rand(ranges.pan)),
+    panY: round4(rand(ranges.pan)),
+    pitch: round4(rand(ranges.pitch)),
   };
 }
 
