@@ -4,16 +4,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wand2, Upload, Film, Link2, Loader2, Download, CalendarPlus,
   RefreshCw, X, Check, Search, ExternalLink, Video, AlertCircle,
+  Type, FlipHorizontal,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
 import { compressVideo } from '@/lib/compressVideo';
+import { STORY_FONTS } from '@/lib/storyRender';
+import { renderVariantTextPng, getVideoSize } from '@/lib/variantText';
 import {
   DEFAULT_VARIANT_PARAMS,
+  DEFAULT_VARIANT_TEXT_STYLE,
   type MediaAsset,
   type VariantParams,
   type VariantJob,
   type AppliedVariantParams,
+  type VariantText,
+  type VariantTextStyle,
+  type VariantTextPosition,
+  type MirrorMode,
 } from '@/lib/studio-types';
 import styles from './page.module.css';
 
@@ -56,14 +64,40 @@ interface VariantRow {
   media_assets: { public_url: string; filename: string | null } | null;
 }
 
+// Claves de VariantParams que son rangos [min,max] editables.
+type RangeKey = 'saturation' | 'contrast' | 'trimStartMs' | 'speed' | 'zoom'
+  | 'trimEndMs' | 'rotate' | 'pan' | 'pitch';
+
 // Metadatos de los rangos avanzados (VariantParams).
-const PARAM_META: { key: keyof VariantParams; label: string; step: number; suffix?: string }[] = [
+const PARAM_META: { key: RangeKey; label: string; step: number; suffix?: string }[] = [
   { key: 'saturation', label: 'Saturación', step: 0.01 },
   { key: 'contrast', label: 'Contraste', step: 0.01 },
   { key: 'trimStartMs', label: 'Recorte inicial', step: 10, suffix: 'ms' },
+  { key: 'trimEndMs', label: 'Recorte final', step: 10, suffix: 'ms' },
   { key: 'speed', label: 'Velocidad', step: 0.01 },
   { key: 'zoom', label: 'Zoom', step: 0.01 },
+  { key: 'rotate', label: 'Rotación', step: 0.1, suffix: '°' },
+  { key: 'pan', label: 'Reencuadre', step: 0.05 },
+  { key: 'pitch', label: 'Tono del audio', step: 0.005 },
 ];
+
+const MIRROR_OPTIONS: { value: MirrorMode; label: string }[] = [
+  { value: 'none', label: 'Ninguna' },
+  { value: 'some', label: 'La mitad' },
+  { value: 'all', label: 'Todas' },
+];
+
+const TEXT_POSITIONS: { value: VariantTextPosition; label: string }[] = [
+  { value: 'top', label: 'Arriba' },
+  { value: 'center', label: 'Centro' },
+  { value: 'bottom', label: 'Abajo' },
+];
+
+const emptyText = (): VariantText => ({ text: '', position: 'top' });
+
+/** Devuelve el rango de un param, con fallback al default (los nuevos son opcionales). */
+const rangeOf = (p: VariantParams, key: RangeKey): [number, number] =>
+  p[key] ?? (DEFAULT_VARIANT_PARAMS[key] as [number, number]);
 
 const POLL_MS = 4000;
 const POLL_DEADLINE_MS = 20 * 60 * 1000; // el worker corre afuera; cortamos a los 20 min
@@ -93,6 +127,13 @@ export default function VariantesPage() {
   const [params, setParams] = useState<VariantParams>(() => structuredClone(DEFAULT_VARIANT_PARAMS));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+
+  // Textos quemados por variante
+  const [mirror, setMirror] = useState<MirrorMode>('none');
+  const [texts, setTexts] = useState<VariantText[]>(() => Array.from({ length: 10 }, emptyText));
+  const [textStyle, setTextStyle] = useState<VariantTextStyle>(() => structuredClone(DEFAULT_VARIANT_TEXT_STYLE));
+  const [previewIdx, setPreviewIdx] = useState(0);
 
   // Job activo + variantes
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -289,6 +330,35 @@ export default function VariantesPage() {
     }
   };
 
+  // ── Textos: rasterizar en el navegador y subirlos al bucket ───────────────
+  // El worker sólo compone el PNG con `overlay`, así no depende de las fuentes
+  // ni del escapado de drawtext del build de ffmpeg que le toque.
+  const prepareTexts = useCallback(async (): Promise<VariantText[]> => {
+    const wanted = texts.slice(0, numVariants);
+    if (!wanted.some((t) => t.text.trim())) return [];
+
+    const { width, height } = await getVideoSize(selectedAsset!.public_url);
+    const out: VariantText[] = [];
+    for (let i = 0; i < numVariants; i++) {
+      const t = wanted[i] ?? emptyText();
+      if (!t.text.trim()) {
+        out.push({ text: '', position: t.position });
+        continue;
+      }
+      const blob = await renderVariantTextPng({
+        text: t.text, position: t.position, style: textStyle, width, height,
+      });
+      const path = `variant-text/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const { error } = await supabase.storage
+        .from('studio')
+        .upload(path, blob, { contentType: 'image/png', upsert: true });
+      if (error) throw new Error(`No se pudo subir el texto de la variante ${i + 1}: ${error.message}`);
+      const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
+      out.push({ ...t, overlayUrl: pub.publicUrl });
+    }
+    return out;
+  }, [texts, numVariants, textStyle, selectedAsset]);
+
   // ── Crear el job de variantes ─────────────────────────────────────────────
   const createJob = async () => {
     if (!selectedAsset) return;
@@ -299,12 +369,23 @@ export default function VariantesPage() {
     setStalled(false);
     setActiveJobId(null);
     try {
+      let preparedTexts: VariantText[] = [];
+      try {
+        setPreparing(true);
+        preparedTexts = await prepareTexts();
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'No se pudieron preparar los textos', 'error');
+        return;
+      } finally {
+        setPreparing(false);
+      }
+
       const { data, error } = await supabase
         .from('variant_jobs')
         .insert({
           source_asset_id: selectedAsset.id,
           num_variants: numVariants,
-          params,
+          params: { ...params, mirror, textStyle, texts: preparedTexts },
           status: 'pending',
         })
         .select('*')
@@ -346,14 +427,23 @@ export default function VariantesPage() {
     setStalled(false);
     setSentIds(new Set());
     setParams(structuredClone(DEFAULT_VARIANT_PARAMS));
+    setTexts(Array.from({ length: 10 }, emptyText));
+    setMirror('none');
   };
 
-  const setRange = (key: keyof VariantParams, idx: 0 | 1, value: number) => {
+  const setRange = (key: RangeKey, idx: 0 | 1, value: number) => {
     setParams((prev) => {
       const next = structuredClone(prev);
-      next[key][idx] = value;
+      const range = [...rangeOf(next, key)] as [number, number];
+      range[idx] = value;
+      next[key] = range;
       return next;
     });
+  };
+
+  const setText = (idx: number, patch: Partial<VariantText>) => {
+    setTexts((prev) => prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
+    setPreviewIdx(idx);
   };
 
   const filteredReels = reelSearch.trim()
@@ -555,32 +645,54 @@ export default function VariantesPage() {
         </button>
 
         {showAdvanced && (
-          <div className={styles.paramsGrid}>
-            {PARAM_META.map(({ key, label, step, suffix }) => (
-              <div key={key} className={styles.paramRow}>
-                <span className={styles.paramLabel}>{label}{suffix ? ` (${suffix})` : ''}</span>
-                <div className={styles.paramInputs}>
-                  <input
-                    type="number"
-                    step={step}
-                    value={params[key][0]}
-                    onChange={(e) => setRange(key, 0, Number(e.target.value))}
-                    className={styles.numInput}
-                    aria-label={`${label} mínimo`}
-                  />
-                  <span className={styles.dash}>—</span>
-                  <input
-                    type="number"
-                    step={step}
-                    value={params[key][1]}
-                    onChange={(e) => setRange(key, 1, Number(e.target.value))}
-                    className={styles.numInput}
-                    aria-label={`${label} máximo`}
-                  />
+          <>
+            <div className={styles.paramsGrid}>
+              {PARAM_META.map(({ key, label, step, suffix }) => (
+                <div key={key} className={styles.paramRow}>
+                  <span className={styles.paramLabel}>{label}{suffix ? ` (${suffix})` : ''}</span>
+                  <div className={styles.paramInputs}>
+                    <input
+                      type="number"
+                      step={step}
+                      value={rangeOf(params, key)[0]}
+                      onChange={(e) => setRange(key, 0, Number(e.target.value))}
+                      className={styles.numInput}
+                      aria-label={`${label} mínimo`}
+                    />
+                    <span className={styles.dash}>—</span>
+                    <input
+                      type="number"
+                      step={step}
+                      value={rangeOf(params, key)[1]}
+                      onChange={(e) => setRange(key, 1, Number(e.target.value))}
+                      className={styles.numInput}
+                      aria-label={`${label} máximo`}
+                    />
+                  </div>
                 </div>
+              ))}
+            </div>
+
+            <div className={styles.mirrorRow}>
+              <span className={styles.paramLabel}><FlipHorizontal size={14} /> Espejar variantes</span>
+              <div className={styles.segmented} role="group">
+                {MIRROR_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    className={`${styles.segment} ${mirror === o.value ? styles.segmentActive : ''}`}
+                    onClick={() => setMirror(o.value)}
+                    aria-pressed={mirror === o.value}
+                  >
+                    {o.label}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+            <p className={styles.hint}>
+              El espejado es lo que más cambia la huella visual, pero da vuelta cualquier texto o logo
+              que ya esté quemado en el video. Revisá el resultado antes de publicar.
+            </p>
+          </>
         )}
 
         <button
@@ -590,16 +702,157 @@ export default function VariantesPage() {
           style={{ marginTop: '1.1rem' }}
         >
           {creating ? <Loader2 size={16} className={styles.spin} /> : <Wand2 size={16} />}
-          {creating ? 'Creando…' : 'Generar variantes'}
+          {preparing ? 'Preparando textos…' : creating ? 'Creando…' : 'Generar variantes'}
         </button>
         {!selectedAsset && <p className={styles.hint}>Elegí un video base arriba para habilitar la generación.</p>}
       </section>
 
-      {/* ── 3 · Resultados ────────────────────────────────────────────────── */}
+      {/* ── 3 · Textos en pantalla ────────────────────────────────────────── */}
+      <section className="glass-panel">
+        <h2 className={styles.sectionTitle}><span className={styles.step}>3</span> Textos en pantalla (opcional)</h2>
+        <p className={styles.sectionSub}>
+          Un texto distinto por variante es la re-edición que más “despega” una copia de otra: cambia
+          píxeles en una zona grande y le da a cada versión un gancho propio. Las que dejes vacías salen sin texto.
+        </p>
+
+        <div className={styles.textLayout}>
+          <div className={styles.textRows}>
+            {Array.from({ length: numVariants }, (_, i) => (
+              <div key={i} className={styles.textRow}>
+                <span className={styles.textRowNum}>#{i + 1}</span>
+                <input
+                  className={styles.urlInput}
+                  value={texts[i]?.text ?? ''}
+                  onChange={(e) => setText(i, { text: e.target.value })}
+                  onFocus={() => setPreviewIdx(i)}
+                  placeholder={i === 0 ? 'Ej. Nadie te lo dice, pero…' : 'Sin texto'}
+                />
+                <select
+                  className={styles.select}
+                  value={texts[i]?.position ?? 'top'}
+                  onChange={(e) => setText(i, { position: e.target.value as VariantTextPosition })}
+                  aria-label={`Posición del texto de la variante ${i + 1}`}
+                >
+                  {TEXT_POSITIONS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className={styles.textSide}>
+            {/* Vista previa aproximada de cómo queda quemado sobre el video */}
+            <div className={styles.textPreview}>
+              {texts[previewIdx]?.text.trim() ? (
+                <div
+                  className={styles.textPreviewBlock}
+                  style={{
+                    top: texts[previewIdx].position === 'top' ? '14%' : undefined,
+                    bottom: texts[previewIdx].position === 'bottom' ? '18%' : undefined,
+                    ...(texts[previewIdx].position === 'center'
+                      ? { top: '50%', transform: 'translateY(-50%)' }
+                      : {}),
+                  }}
+                >
+                  {texts[previewIdx].text.split('\n').map((line, li) => (
+                    <span
+                      key={li}
+                      className={styles.textPreviewLine}
+                      style={{
+                        fontFamily: `"${textStyle.font}", sans-serif`,
+                        fontSize: `${textStyle.size * 206}px`,
+                        color: textStyle.color,
+                        background: textStyle.box
+                          ? `color-mix(in srgb, ${textStyle.boxColor} ${Math.round(textStyle.boxOpacity * 100)}%, transparent)`
+                          : 'transparent',
+                      }}
+                    >
+                      {line}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.textPreviewEmpty}>Vista previa</span>
+              )}
+            </div>
+
+            <label className={styles.styleField}>
+              <span>Fuente</span>
+              <select
+                className={styles.select}
+                value={textStyle.font}
+                onChange={(e) => setTextStyle((s) => ({ ...s, font: e.target.value }))}
+              >
+                {STORY_FONTS.map((f) => (
+                  <option key={f.family} value={f.family}>{f.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className={styles.styleField}>
+              <span>Tamaño · {Math.round(textStyle.size * 100)}% de la altura</span>
+              <input
+                type="range"
+                min={3}
+                max={12}
+                value={Math.round(textStyle.size * 100)}
+                onChange={(e) => setTextStyle((s) => ({ ...s, size: Number(e.target.value) / 100 }))}
+              />
+            </label>
+
+            <div className={styles.styleRow}>
+              <label className={styles.styleField}>
+                <span>Color</span>
+                <input
+                  type="color"
+                  className={styles.colorInput}
+                  value={textStyle.color}
+                  onChange={(e) => setTextStyle((s) => ({ ...s, color: e.target.value }))}
+                />
+              </label>
+              <label className={styles.styleField}>
+                <span>Caja</span>
+                <input
+                  type="color"
+                  className={styles.colorInput}
+                  value={textStyle.boxColor}
+                  disabled={!textStyle.box}
+                  onChange={(e) => setTextStyle((s) => ({ ...s, boxColor: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <label className={styles.checkField}>
+              <input
+                type="checkbox"
+                checked={textStyle.box}
+                onChange={(e) => setTextStyle((s) => ({ ...s, box: e.target.checked }))}
+              />
+              <span><Type size={13} /> Caja de fondo detrás del texto</span>
+            </label>
+
+            {textStyle.box && (
+              <label className={styles.styleField}>
+                <span>Opacidad de la caja · {Math.round(textStyle.boxOpacity * 100)}%</span>
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  value={Math.round(textStyle.boxOpacity * 100)}
+                  onChange={(e) => setTextStyle((s) => ({ ...s, boxOpacity: Number(e.target.value) / 100 }))}
+                />
+              </label>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── 4 · Resultados ────────────────────────────────────────────────── */}
       {activeJobId && (
         <section className="glass-panel">
           <div className={styles.resultsHead}>
-            <h2 className={styles.sectionTitle}><span className={styles.step}>3</span> Variantes generadas</h2>
+            <h2 className={styles.sectionTitle}><span className={styles.step}>4</span> Variantes generadas</h2>
             <div className={styles.resultsActions}>
               <span className={`${styles.statusChip} ${styles['st_' + (job?.status || 'pending')]}`}>
                 {jobRunning && <Loader2 size={13} className={styles.spin} />}
@@ -668,6 +921,15 @@ export default function VariantesPage() {
                       <span>sat {v.params?.saturation?.toFixed?.(2) ?? '—'}</span>
                       <span>vel {v.params?.speed?.toFixed?.(2) ?? '—'}</span>
                       <span>zoom {v.params?.zoom?.toFixed?.(2) ?? '—'}</span>
+                      {typeof v.params?.rotate === 'number' && v.params.rotate !== 0 && (
+                        <span>rot {v.params.rotate.toFixed(1)}°</span>
+                      )}
+                      {v.params?.mirror && <span><FlipHorizontal size={11} /> espejo</span>}
+                      {v.params?.text?.text && (
+                        <span className={styles.variantText} title={v.params.text.text}>
+                          <Type size={11} /> {v.params.text.text.split('\n')[0]}
+                        </span>
+                      )}
                     </div>
                     <div className={styles.variantActions}>
                       {v.media_assets?.public_url && (
