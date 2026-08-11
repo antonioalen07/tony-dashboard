@@ -1,4 +1,5 @@
 import { FileText, Sparkles } from 'lucide-react';
+import { coverSrc } from '@/lib/covers';
 import styles from './ReelGrid.module.css';
 
 interface ReelGridProps {
@@ -31,11 +32,13 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
         return (
           <div key={reel.id} className={styles.card} onClick={() => onSelectReel(reel)}>
             <img
-              src={reel.cover_url ? `https://wsrv.nl/?url=${encodeURIComponent(reel.cover_url)}` : ''}
-              alt={reel.title}
+              src={coverSrc(reel.cover_url)}
+              alt=""
               className={styles.cover}
               referrerPolicy="no-referrer"
               loading="lazy"
+              // Portada caída: queda la tarjeta neutra, no el ícono de imagen rota.
+              onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
             />
             <div className={styles.badges}>
               {hasTranscript && (

@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/utils/supabase';
 import { Eye, Bookmark } from 'lucide-react';
+import { coverSrc } from '@/lib/covers';
 import styles from './TopContentList.module.css';
-
-const proxied = (url: string) => (url ? `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=120&h=120&fit=cover` : '');
 
 const formatNumber = (num: number) => {
   if (!num) return '0';
@@ -64,11 +63,13 @@ export default function TopContentList() {
             <a key={reel.id} href="/instagram" className={styles.listItem}>
               <span className={styles.rank}>{idx + 1}</span>
               <img
-                src={proxied(reel.cover_url)}
+                src={coverSrc(reel.cover_url, 120)}
                 alt=""
                 className={styles.thumbnail}
                 referrerPolicy="no-referrer"
                 loading="lazy"
+                // Portada caída: dejamos el recuadro neutro en vez del ícono roto.
+                onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
               />
               <div className={styles.info}>
                 <span className={styles.title}>{(reel.title || 'Reel sin título').split('\n')[0]}</span>

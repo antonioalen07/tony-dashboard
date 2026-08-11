@@ -12,6 +12,7 @@
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   border: 1px solid var(--card-border);
+  background: var(--surface-2); /* si la portada no carga, queda tarjeta neutra */
 }
 
 .card:hover {

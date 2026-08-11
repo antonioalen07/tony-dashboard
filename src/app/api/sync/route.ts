@@ -1,7 +1,23 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
+import { isPersistedCover, persistCovers } from '@/lib/covers';
 
 export const dynamic = 'force-dynamic';
+// Bajar y subir las portadas suma segundos al sync; sin esto Hobby lo corta.
+export const maxDuration = 60;
+
+/** Lo que usamos del media de la Graph API para resolver la portada. */
+interface MediaItem {
+  id: string;
+  media_type?: string;
+  thumbnail_url?: string;
+  media_url?: string;
+}
+
+interface KnownCover {
+  instagram_id: string;
+  cover_url: string;
+}
 
 export async function POST() {
   try {
@@ -28,6 +44,28 @@ export async function POST() {
 
     const items = mediaData.data || [];
     const newReels = [];
+
+    // 1.b Portadas estables. La URL del CDN de Instagram viene firmada y caduca
+    // en días, así que la copiamos al Storage una sola vez por reel. Si ya la
+    // tenemos guardada no volvemos a bajarla: el sync no puede costar 20
+    // descargas cada vez.
+    const videos: MediaItem[] = (items as MediaItem[]).filter((it) => it.media_type === 'VIDEO');
+    const { data: known } = await supabase
+      .from('reels')
+      .select('instagram_id,cover_url')
+      .in('instagram_id', videos.map((it) => it.id));
+
+    const alreadyStored = new Map<string, string>(
+      ((known || []) as KnownCover[])
+        .filter((r) => isPersistedCover(r.cover_url))
+        .map((r) => [r.instagram_id, r.cover_url]),
+    );
+
+    const fresh = await persistCovers(
+      videos
+        .filter((it) => !alreadyStored.has(it.id))
+        .map((it) => ({ key: it.id, sourceUrl: it.thumbnail_url || it.media_url || '' })),
+    );
 
     // 2. Loop through media and fetch insights
     for (const item of items) {
@@ -65,7 +103,10 @@ export async function POST() {
         const reelData = {
           instagram_id: item.id,
           title: item.caption || '',
-          cover_url: item.thumbnail_url || item.media_url || '',
+          // Preferimos SIEMPRE la copia del Storage; la del CDN es el último recurso.
+          cover_url:
+            alreadyStored.get(item.id) || fresh.get(item.id) ||
+            item.thumbnail_url || item.media_url || '',
           video_url: item.permalink || '',
           published_at: item.timestamp,
           views: views || reach, // fallback to reach if plays is unsupported
