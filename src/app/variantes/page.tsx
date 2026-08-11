@@ -108,12 +108,23 @@ const rangeOf = (p: VariantParams, key: RangeKey): [number, number] =>
 const POLL_MS = 4000;
 const POLL_DEADLINE_MS = 20 * 60 * 1000; // el worker corre afuera; cortamos a los 20 min
 
+// Las variantes viven en la base (video_variants + Storage), pero el job activo
+// era sólo estado de React: al salir de la página parecía que se habían borrado.
+// Guardamos cuál era el último job para poder recuperarlo al volver.
+const LAST_JOB_KEY = 'variantes:lastJobId';
+const CAPTIONS_KEY = 'variantes:captions';
+
+/** El error de Supabase es "no existe la columna caption" (migración vieja). */
+const isMissingCaption = (err: { message?: string } | null) =>
+  !!err && /caption/i.test(err.message || '');
+
 // ── Componente ───────────────────────────────────────────────────────────────
 
 export default function VariantesPage() {
   const { toast } = useToast();
 
   const [migrationNeeded, setMigrationNeeded] = useState(false);
+  const [captionColumnMissing, setCaptionColumnMissing] = useState(false);
 
   // Fuente del video base
   const [mode, setMode] = useState<'upload' | 'reel'>('upload');
@@ -159,7 +170,12 @@ export default function VariantesPage() {
   useEffect(() => {
     (async () => {
       const { error } = await supabase.from('variant_jobs').select('id', { head: true, count: 'exact' });
-      if (isMissingTable(error)) setMigrationNeeded(true);
+      if (isMissingTable(error)) { setMigrationNeeded(true); return; }
+
+      // El envío al calendario escribe `caption`. Si esa columna no existe la
+      // insert falla entera, así que lo avisamos acá y no recién al intentarlo.
+      const { error: capErr } = await supabase.from('publish_queue').select('caption').limit(1);
+      if (isMissingCaption(capErr)) setCaptionColumnMissing(true);
     })();
   }, []);
 
@@ -195,10 +211,75 @@ export default function VariantesPage() {
       .select('id,job_id,asset_id,params,created_at, media_assets(public_url,filename)')
       .eq('job_id', jobId)
       .order('created_at', { ascending: true });
-    if (vs) setVariants(vs as unknown as VariantRow[]);
+    if (vs) {
+      setVariants(vs as unknown as VariantRow[]);
+
+      // Qué variantes ya están encoladas. Se relee de la base (y no sólo del
+      // estado local) para que al volver a la página sigan marcadas "Enviada"
+      // y no se pueda encolar la misma variante dos veces.
+      const ids = (vs as unknown as VariantRow[]).map((v) => v.id);
+      if (ids.length) {
+        const { data: queued } = await supabase
+          .from('publish_queue')
+          .select('variant_id')
+          .in('variant_id', ids);
+        if (queued) {
+          setSentIds(new Set(
+            (queued as { variant_id: string | null }[])
+              .map((q) => q.variant_id)
+              .filter((id): id is string => !!id),
+          ));
+        }
+      }
+    }
 
     return (jobData as VariantJob) || null;
   }, []);
+
+  // ── Recuperar la última generación al montar ──────────────────────────────
+  // Sin esto, cambiar de página perdía el job y las variantes parecían borradas
+  // (los mp4 siguen en Storage y las filas en video_variants).
+  useEffect(() => {
+    let cancelled = false;
+
+    /** Captions que se habían escrito para ese job y nunca se enviaron. */
+    const restoreCaptions = (jobId: string) => {
+      try {
+        const raw = localStorage.getItem(CAPTIONS_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { jobId?: string; captions?: Record<string, string> };
+        if (saved.jobId === jobId && saved.captions) setCaptions(saved.captions);
+      } catch { /* storage corrupto: se ignora y se reescribe */ }
+    };
+
+    (async () => {
+      const stored = localStorage.getItem(LAST_JOB_KEY);
+      if (stored === '') return; // el usuario cerró la generación con "Nueva generación"
+
+      if (stored) {
+        const { data } = await supabase.from('variant_jobs').select('id').eq('id', stored).maybeSingle();
+        if (cancelled) return;
+        if (data) { setActiveJobId(stored); restoreCaptions(stored); return; }
+        localStorage.removeItem(LAST_JOB_KEY); // el job guardado ya no existe
+      }
+
+      // Sin job guardado (otro navegador, storage limpiado): caemos al más reciente.
+      const { data: last } = await supabase
+        .from('variant_jobs').select('id').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (cancelled || !last) return;
+      setActiveJobId(last.id);
+      restoreCaptions(last.id);
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persistir job activo + captions para poder recuperarlos al volver.
+  useEffect(() => {
+    if (!activeJobId) return;
+    localStorage.setItem(LAST_JOB_KEY, activeJobId);
+    localStorage.setItem(CAPTIONS_KEY, JSON.stringify({ jobId: activeJobId, captions }));
+  }, [activeJobId, captions]);
 
   // ── Poll (patrón runScan de inspiración): start + poll cada ~4s ───────────
   useEffect(() => {
@@ -429,26 +510,32 @@ export default function VariantesPage() {
     setSendingId(v.id);
     try {
       const caption = (captions[v.id] ?? '').trim();
-      const { error } = await supabase.from('publish_queue').insert({
+      const base = {
         variant_id: v.id,
-        kind: 'trial_reel',
-        status: 'pending',
+        kind: 'trial_reel' as const,
+        status: 'pending' as const,
         scheduled_at: null,
-        caption: caption || null,
-      });
-      if (isMissingTable(error)) { setMigrationNeeded(true); return; }
-      if (error) {
-        // La columna `caption` es nueva: si la base todavía no la tiene, avisamos
-        // qué falta en vez de tirar el error crudo de Postgres.
-        const falta = /caption/i.test(error.message || '');
-        toast(
-          falta
-            ? 'Falta la columna `caption`: volvé a correr supabase_migration_studio.sql'
-            : error.message || 'No se pudo encolar',
-          'error',
-        );
-        return;
+      };
+      let { error } = await supabase.from('publish_queue').insert({ ...base, caption: caption || null });
+
+      // `caption` es de una migración posterior. Si la base todavía no la tiene,
+      // encolamos igual (sin caption) en vez de dejar al usuario sin poder mandar
+      // nada al calendario, y le decimos exactamente qué falta.
+      // Ojo: PostgREST responde "Could not find the 'caption' column ... in the
+      // schema cache", que también matchea isMissingTable — por eso va primero.
+      if (error && isMissingCaption(error)) {
+        setCaptionColumnMissing(true);
+        ({ error } = await supabase.from('publish_queue').insert(base));
+        if (!error) {
+          setSentIds((prev) => new Set(prev).add(v.id));
+          toast('Encolada, pero SIN el caption: falta correr supabase_migration_studio.sql', 'error');
+          return;
+        }
       }
+
+      if (isMissingTable(error)) { setMigrationNeeded(true); return; }
+      if (error) { toast(error.message || 'No se pudo encolar', 'error'); return; }
+
       setSentIds((prev) => new Set(prev).add(v.id));
       toast('Enviada al calendario como reel de prueba', 'success');
     } finally {
@@ -468,6 +555,10 @@ export default function VariantesPage() {
     setMirror('none');
     setVideoMeta(null);
     setCaptions({});
+    // Empezar de cero es explícito: la clave vacía marca "cerrado a propósito"
+    // para que el próximo montaje no recupere el job que el usuario acaba de cerrar.
+    localStorage.setItem(LAST_JOB_KEY, '');
+    localStorage.removeItem(CAPTIONS_KEY);
   };
 
   const setRange = (key: RangeKey, idx: 0 | 1, value: number) => {
@@ -508,6 +599,17 @@ export default function VariantesPage() {
           <span>
             <strong>Falta un paso:</strong> ejecutá <code>supabase_migration_studio.sql</code> en el
             SQL Editor de Supabase para activar las tablas del Studio.
+          </span>
+        </div>
+      )}
+
+      {!migrationNeeded && captionColumnMissing && (
+        <div className={styles.migrationNotice}>
+          <AlertCircle size={16} className={styles.noticeIcon} />
+          <span>
+            <strong>La base está atrasada:</strong> falta la columna <code>caption</code> en{' '}
+            <code>publish_queue</code>. Las variantes se encolan igual, pero sin el texto del post.
+            Corré <code>supabase_migration_studio.sql</code> en el SQL Editor de Supabase.
           </span>
         </div>
       )}
