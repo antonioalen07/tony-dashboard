@@ -116,7 +116,15 @@ export interface VariantTextStyle {
 /** Texto quemado en UNA variante. `text` vacío = esa variante no lleva texto. */
 export interface VariantText {
   text: string;
+  /**
+   * Preset vertical. Se mantiene para los jobs viejos (que no traen x/y) y como
+   * atajo en el editor, pero si hay `x`/`y` mandan ellos.
+   */
   position: VariantTextPosition;
+  /** Centro del bloque de texto, en fracción del ancho del video (0..1). */
+  x?: number;
+  /** Centro del bloque de texto, en fracción del alto del video (0..1). */
+  y?: number;
   /** Segundo del video final en que aparece el texto. 0 / vacío = desde el arranque. */
   startSec?: number;
   /** Segundo en que desaparece. null = queda hasta el final. */
@@ -128,6 +136,17 @@ export interface VariantText {
    */
   overlayUrl?: string | null;
 }
+
+/**
+ * Dónde cae el CENTRO del bloque para cada preset. Es la traducción de los
+ * presets viejos a la posición libre: elegir "Arriba" es sólo un atajo que
+ * escribe estas coordenadas, que después se pueden arrastrar.
+ */
+export const TEXT_PRESET_XY: Record<VariantTextPosition, { x: number; y: number }> = {
+  top: { x: 0.5, y: 0.18 },
+  center: { x: 0.5, y: 0.5 },
+  bottom: { x: 0.5, y: 0.84 },
+};
 
 export const DEFAULT_VARIANT_TEXT_STYLE: VariantTextStyle = {
   size: 0.055,

@@ -514,33 +514,75 @@
 
 .textPreview {
   position: relative;
-  width: 116px;
-  height: 206px;
+  width: 100%;
+  max-width: 208px;
   align-self: center;
+  /* aspect-ratio va inline: es el del video base, para que arrastrar acá
+     equivalga exactamente a la posición en el PNG que compone el worker. */
   border-radius: var(--radius-sm);
   border: 1px solid var(--surface-border);
   background:
     repeating-linear-gradient(45deg, var(--surface-1) 0 8px, var(--surface-2) 8px 16px);
   overflow: hidden;
+  touch-action: none; /* el arrastre no debe hacer scroll en mobile */
+  cursor: crosshair;
+  /* Unidad de contención: 1cqh = 1% del alto de la preview, así el cuerpo del
+     texto escala igual que en el canvas (fontSize = size * alto del video). */
+  container-type: size;
+}
+.textPreviewVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
 }
 .textPreviewBlock {
   position: absolute;
-  left: 8%;
-  right: 8%;
+  width: 84%; /* mismo ancho útil que TEXT_MAX_W en el render del PNG */
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
   text-align: center;
+  cursor: grab;
+  outline: none;
+}
+.textPreviewBlock:active { cursor: grabbing; }
+.textPreviewBlock:focus-visible,
+.textPreviewBlock:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  border-radius: 3px;
 }
 .textPreviewLine {
   display: inline-block;
-  padding: 0.06em 0.3em;
+  padding: 0.14em 0.32em; /* mismos pads que el canvas (0.14 / 0.32 del cuerpo) */
+  /* El canvas avanza 1.25em por línea; sin esto el padding vertical separaría
+     las líneas de más y la preview mentiría en los textos de varias líneas. */
+  margin-block: -0.14em;
   border-radius: 3px;
   font-weight: 700;
   line-height: 1.25;
   max-width: 100%;
   overflow-wrap: anywhere;
+  font-size: calc(var(--tp-size, 0.055) * 340px); /* fallback sin unidades cq */
+  font-size: calc(var(--tp-size, 0.055) * 100cqh);
+}
+
+.posRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.posReadout {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 .textPreviewEmpty {
   position: absolute;

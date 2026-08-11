@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wand2, Upload, Film, Link2, Loader2, Download, CalendarPlus,
   RefreshCw, X, Check, Search, ExternalLink, Video, AlertCircle,
-  Type, FlipHorizontal,
+  Type, FlipHorizontal, Move, CopyCheck,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
@@ -14,6 +14,7 @@ import { renderVariantTextPng, getVideoMeta, type VideoMeta } from '@/lib/varian
 import {
   DEFAULT_VARIANT_PARAMS,
   DEFAULT_VARIANT_TEXT_STYLE,
+  TEXT_PRESET_XY,
   type MediaAsset,
   type VariantParams,
   type VariantJob,
@@ -93,7 +94,18 @@ const TEXT_POSITIONS: { value: VariantTextPosition; label: string }[] = [
   { value: 'bottom', label: 'Abajo' },
 ];
 
-const emptyText = (): VariantText => ({ text: '', position: 'top', startSec: 0, endSec: null });
+const emptyText = (): VariantText => ({
+  text: '', position: 'top', ...TEXT_PRESET_XY.top, startSec: 0, endSec: null,
+});
+
+/** x/y efectivos de un texto: los libres si los tiene, si no los del preset. */
+const xyOf = (t: VariantText | undefined): { x: number; y: number } => {
+  const preset = TEXT_PRESET_XY[t?.position ?? 'top'];
+  return { x: t?.x ?? preset.x, y: t?.y ?? preset.y };
+};
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 /** "12.5" → 12.5 · "" → null (campo vacío = sin límite). */
 const parseSec = (v: string): number | null => {
@@ -151,6 +163,14 @@ export default function VariantesPage() {
   const [texts, setTexts] = useState<VariantText[]>(() => Array.from({ length: 10 }, emptyText));
   const [textStyle, setTextStyle] = useState<VariantTextStyle>(() => structuredClone(DEFAULT_VARIANT_TEXT_STYLE));
   const [previewIdx, setPreviewIdx] = useState(0);
+  // Segundo del video que se ve de fondo en la vista previa: es contra ese frame
+  // que se alinea el texto (p. ej. para tapar un texto que el video ya trae).
+  const [previewTime, setPreviewTime] = useState(0);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
+  // Distancia entre el puntero y el centro del bloque al agarrarlo, para que el
+  // texto no salte al cursor cuando lo agarrás de una esquina.
+  const dragGrab = useRef({ dx: 0, dy: 0 });
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
 
   // Captions por variante (índice de la variante → texto del post)
@@ -450,8 +470,9 @@ export default function VariantesPage() {
       // y el texto queda hasta el final, que es lo que espera cualquiera.
       const startSec = t.startSec ?? 0;
       const endSec = t.endSec != null && t.endSec > startSec ? t.endSec : null;
+      const { x, y } = xyOf(t);
       const blob = await renderVariantTextPng({
-        text: t.text, position: t.position, style: textStyle, width, height,
+        text: t.text, position: t.position, x, y, style: textStyle, width, height,
       });
       const path = `variant-text/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.png`;
       const { error } = await supabase.storage
@@ -574,6 +595,69 @@ export default function VariantesPage() {
   const setText = (idx: number, patch: Partial<VariantText>) => {
     setTexts((prev) => prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
     setPreviewIdx(idx);
+  };
+
+  // ── Posición libre del texto ───────────────────────────────────────────────
+  /** Mueve el bloque del texto en preview a una posición del frame (0..1). */
+  const moveText = (x: number, y: number) =>
+    setText(previewIdx, { x: clamp01(x), y: clamp01(y) });
+
+  /** Coordenadas normalizadas de un punto del puntero dentro de la preview. */
+  const pointerXY = (e: { clientX: number; clientY: number }) => {
+    const r = previewRef.current?.getBoundingClientRect();
+    if (!r || !r.width || !r.height) return null;
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  };
+
+  const onBlockPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = pointerXY(e);
+    if (!p) return;
+    const cur = xyOf(texts[previewIdx]);
+    dragGrab.current = { dx: p.x - cur.x, dy: p.y - cur.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onBlockPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+    const p = pointerXY(e);
+    if (!p) return;
+    moveText(p.x - dragGrab.current.dx, p.y - dragGrab.current.dy);
+  };
+
+  const onBlockPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  /** Clic en el frame (fuera del bloque): manda el texto ahí de una. */
+  const onPreviewPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return; // el bloque maneja lo suyo
+    const p = pointerXY(e);
+    if (p) moveText(p.x, p.y);
+  };
+
+  /** Flechas para ajuste fino; con Shift el paso es más grueso. */
+  const onBlockKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 0.02 : 0.004;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const cur = xyOf(texts[previewIdx]);
+    moveText(cur.x + d[0], cur.y + d[1]);
+  };
+
+  /** Mueve la preview a un segundo del video base. */
+  const seekPreview = (sec: number) => {
+    setPreviewTime(sec);
+    const v = previewVideoRef.current;
+    if (v && Number.isFinite(sec)) v.currentTime = sec;
+  };
+
+  /** El video ya trae el texto en el mismo lugar para todas: copiar posición. */
+  const applyPositionToAll = () => {
+    const { x, y } = xyOf(texts[previewIdx]);
+    setTexts((prev) => prev.map((t) => ({ ...t, x, y })));
+    toast('Posición aplicada a todas las variantes', 'success');
   };
 
   const filteredReels = reelSearch.trim()
@@ -878,7 +962,12 @@ export default function VariantesPage() {
                 <select
                   className={styles.select}
                   value={texts[i]?.position ?? 'top'}
-                  onChange={(e) => setText(i, { position: e.target.value as VariantTextPosition })}
+                  onChange={(e) => {
+                    // El preset es un atajo: escribe las coordenadas, que después
+                    // se pueden arrastrar libremente sobre la vista previa.
+                    const position = e.target.value as VariantTextPosition;
+                    setText(i, { position, ...TEXT_PRESET_XY[position] });
+                  }}
                   aria-label={`Posición del texto de la variante ${i + 1}`}
                 >
                   {TEXT_POSITIONS.map((p) => (
@@ -915,18 +1004,44 @@ export default function VariantesPage() {
           </div>
 
           <div className={styles.textSide}>
-            {/* Vista previa aproximada de cómo queda quemado sobre el video */}
-            <div className={styles.textPreview}>
+            {/* Vista previa sobre el frame real: se arrastra el texto para
+                alinearlo con lo que el video ya trae quemado. */}
+            <div
+              ref={previewRef}
+              className={styles.textPreview}
+              style={{
+                aspectRatio: videoMeta ? `${videoMeta.width} / ${videoMeta.height}` : '9 / 16',
+                ['--tp-size' as string]: textStyle.size,
+              }}
+              onPointerDown={onPreviewPointerDown}
+            >
+              {selectedAsset?.public_url && (
+                <video
+                  ref={previewVideoRef}
+                  src={selectedAsset.public_url}
+                  className={styles.textPreviewVideo}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  onLoadedMetadata={(e) => { e.currentTarget.currentTime = previewTime; }}
+                />
+              )}
+
               {texts[previewIdx]?.text.trim() ? (
                 <div
                   className={styles.textPreviewBlock}
                   style={{
-                    top: texts[previewIdx].position === 'top' ? '14%' : undefined,
-                    bottom: texts[previewIdx].position === 'bottom' ? '18%' : undefined,
-                    ...(texts[previewIdx].position === 'center'
-                      ? { top: '50%', transform: 'translateY(-50%)' }
-                      : {}),
+                    left: pct(xyOf(texts[previewIdx]).x),
+                    top: pct(xyOf(texts[previewIdx]).y),
                   }}
+                  onPointerDown={onBlockPointerDown}
+                  onPointerMove={onBlockPointerMove}
+                  onPointerUp={onBlockPointerUp}
+                  onKeyDown={onBlockKeyDown}
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Mover el texto: arrastralo o usá las flechas"
+                  title="Arrastrá para mover · flechas para ajuste fino"
                 >
                   {texts[previewIdx].text.split('\n').map((line, li) => (
                     <span
@@ -934,7 +1049,6 @@ export default function VariantesPage() {
                       className={styles.textPreviewLine}
                       style={{
                         fontFamily: `"${textStyle.font}", sans-serif`,
-                        fontSize: `${textStyle.size * 206}px`,
                         color: textStyle.color,
                         background: textStyle.box
                           ? `color-mix(in srgb, ${textStyle.boxColor} ${Math.round(textStyle.boxOpacity * 100)}%, transparent)`
@@ -946,9 +1060,45 @@ export default function VariantesPage() {
                   ))}
                 </div>
               ) : (
-                <span className={styles.textPreviewEmpty}>Vista previa</span>
+                <span className={styles.textPreviewEmpty}>
+                  {selectedAsset ? 'Escribí el texto de una variante' : 'Vista previa'}
+                </span>
               )}
             </div>
+
+            {/* Buscar el frame donde está el texto que hay que tapar */}
+            {selectedAsset?.public_url && (
+              <label className={styles.styleField}>
+                <span>Frame del video · {previewTime.toFixed(1)} s</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0.1, videoMeta?.duration ?? 15)}
+                  step={0.1}
+                  value={previewTime}
+                  onChange={(e) => seekPreview(Number(e.target.value))}
+                />
+              </label>
+            )}
+
+            <div className={styles.posRow}>
+              <span className={styles.posReadout}>
+                <Move size={12} /> x {pct(xyOf(texts[previewIdx]).x)} · y {pct(xyOf(texts[previewIdx]).y)}
+              </span>
+              <button
+                type="button"
+                className={styles.ghostBtn}
+                onClick={applyPositionToAll}
+                disabled={!texts[previewIdx]?.text.trim()}
+                title="Copiar esta posición a las otras variantes"
+              >
+                <CopyCheck size={13} /> A todas
+              </button>
+            </div>
+            <p className={styles.hint}>
+              Arrastrá el texto sobre el frame para alinearlo (o tocá donde querés mandarlo).
+              Con el bloque seleccionado, las flechas lo mueven de a poco.
+            </p>
 
             <label className={styles.styleField}>
               <span>Fuente</span>

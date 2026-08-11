@@ -16,7 +16,12 @@ const LINE_HEIGHT = 1.25;
 
 export interface RenderTextOptions {
   text: string;
+  /** Preset vertical: sólo se usa si no vienen `x`/`y` (jobs viejos). */
   position: VariantTextPosition;
+  /** Centro del bloque, en fracción del ancho (0..1). */
+  x?: number;
+  /** Centro del bloque, en fracción del alto (0..1). */
+  y?: number;
   style: VariantTextStyle;
   width: number;
   height: number;
@@ -89,7 +94,7 @@ function rgba(hex: string, alpha: number): string {
 
 /** Rasteriza el texto a un PNG transparente del tamaño del video. */
 export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blob> {
-  const { text, position, style, width, height } = opts;
+  const { text, position, x, y, style, width, height } = opts;
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(2, Math.round(width));
@@ -112,15 +117,17 @@ export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blo
   const lh = fontSize * LINE_HEIGHT;
   const blockH = lines.length * lh;
 
-  // Posición vertical del bloque, dentro de las zonas seguras de la story.
+  // Posición libre: x/y son el CENTRO del bloque. Sin ellos (jobs viejos) se
+  // cae a los presets, que se ubican dentro de las zonas seguras de la story.
   const top =
-    position === 'center' ? (canvas.height - blockH) / 2
+    y != null ? y * canvas.height - blockH / 2
+    : position === 'center' ? (canvas.height - blockH) / 2
     : position === 'bottom' ? canvas.height * 0.82 - blockH
     : canvas.height * 0.14;
 
   const padX = fontSize * 0.32;
   const padY = fontSize * 0.14;
-  const cx = canvas.width / 2;
+  const cx = (x ?? 0.5) * canvas.width;
 
   lines.forEach((line, i) => {
     const y = top + i * lh;
