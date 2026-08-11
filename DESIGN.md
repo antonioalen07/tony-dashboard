@@ -6,32 +6,39 @@ Doble tema **oscuro (default)** y **claro**, con toggle persistente (`data-theme
 
 ## Color
 
-Estrategia: **Restrained**. Neutros + un acento teal de marca. El acento solo señala acción/selección/estado.
+Estrategia: **Restrained, monocroma**. Negro + grafito, sin matiz de marca. Lo que señala acción/selección/estado es el **contraste**, no el color: el acento se define como un salto de luminancia contra la superficie, así que se invierte con el tema.
 
-Acento de marca (ambos temas):
-- `--accent-primary: #14b8a6` (teal 500)
-- `--accent-hover: #0f9d8f`
-- `--accent-bright: #2dd4bf` (series de datos sobre fondo oscuro)
-- `--accent-soft`: teal a baja opacidad para fondos de badges/halos
+Acento (grafito):
+- Oscuro → sube: `--accent-primary: #e4e4e7`, botón primario `--accent-strong: #e8e8ec` sobre `--on-accent: #0a0a0b`
+- Claro → baja: `--accent-primary: #26262a`, botón primario `--accent-strong: #1c1c1f` sobre `--on-accent: #ffffff`
+- `--accent-soft`: neutro a 7–8% para chips/halos/selección
+- `--accent-glow`: halo neutro (no de color) para hover de `.interactive`
+- `--accent-secondary` / `--accent-tertiary`: escalones de la misma rampa de grises, no matices
 
 Oscuro (`:root`):
-- bg `#0a0e0e` · sidebar `#0f1413` · card `#141a19` · border `#222b29`
-- texto primario `#f4f6f5` · secundario `#9aa6a3`
+- bg `#070708` · sidebar `#0d0d0f` · card `#131315` · elevated `#18181b` · border `rgba(255,255,255,.07)`
+- texto primario `#f0f0f2` · secundario `#9a9aa2`
 
 Claro (`[data-theme="light"]`):
-- bg `#f6f8f7` · sidebar `#ffffff` · card `#ffffff` · border `#e3e9e7`
-- texto primario `#0e1413` · secundario `#5a6663`
+- bg `#f6f6f7` · sidebar `#ffffff` · card `#ffffff` · border `#e4e4e7`
+- texto primario `#101012` · secundario `#62626b`
 
-Semánticos: `--accent-positive: #14b8a6`, `--accent-negative: #ef4444`. Variables de chart: `--chart-grid`, `--chart-axis`, `--chart-line` derivadas del tema.
+Semánticos (único matiz del sistema, desaturado): `--accent-positive` `#74b58c` / `#2f7d52`, `--accent-negative` `#e0645c` / `#c0392f`. Charts en escala de grises: `--chart-line` neutro de máximo contraste, `--chart-line-2` gris medio.
+
+Excepción: el editor de Historias usa colores saturados (pincel, resaltado, guías de alineación) porque son **contenido** del usuario y overlays funcionales sobre el lienzo, no cromo de la app.
+
+## Logo
+
+Monograma **DC** monolineal sobre badge grafito (`#17171a`, radio 17/64, filo de luz superior). D en `#fafafa` (primaria) y C en `#a1a1aa` (secundaria): la jerarquía es de luminancia, no de color, así que el badge funciona igual sobre fondo claro u oscuro. Mismo dibujo en `src/app/icon.svg` y en `favicon.ico` (16/32/48/64) con trazo algo más grueso.
 
 ## Typography
 
-Una sola familia: **Inter** (sans). Escala fija en rem (no fluida), ratio ~1.2. Pesos 400/500/600/700 para jerarquía. Sin display fonts en UI. Labels en mayúsculas solo ≤4 palabras.
+**Inter** para UI y **Manrope** (`--font-display`) para títulos. Escala fija en rem (no fluida), ratio ~1.2. Pesos 400/500/600/700 para jerarquía. Labels en mayúsculas solo ≤4 palabras.
 
 ## Components
 
-- **Panel (`.glass-panel`)**: superficie sólida (card-bg + border 1px + radius 16px), sin blur decorativo. Sombra sutil solo en claro.
-- **MetricCard**: cifra grande (peso 700) + label secundario; icono en halo teal suave. Sin gradientes.
+- **Panel (`.glass-panel`)**: glass iOS — card-bg translúcido + `backdrop-filter: blur(20px)`, borde fino e inner-glow, radius 18px.
+- **MetricCard**: cifra grande (peso 700) + label secundario; icono en halo neutro suave. Sin gradientes.
 - **Top Contenidos**: lista con miniatura real (portada del reel), índice de ranking, título real (1 línea), métricas (vistas, ER). Hover eleva sutil.
 - **Botones**: default/hover/focus/active/disabled/loading. Acento solo en primarios.
 - Estados: skeleton en carga, empty states que enseñan, error inline.

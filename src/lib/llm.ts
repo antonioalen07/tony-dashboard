@@ -19,8 +19,8 @@ export const llm = new OpenAI(
         baseURL: 'https://openrouter.ai/api/v1',
         apiKey: process.env.OPENROUTER_API_KEY || 'placeholder',
         defaultHeaders: {
-          'HTTP-Referer': 'https://crevy.content',
-          'X-Title': 'Crevy Content',
+          'HTTP-Referer': 'https://dashboard.content',
+          'X-Title': 'Dashboard Content',
         },
       }
 );

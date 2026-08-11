@@ -239,12 +239,12 @@
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #04221e;
 }
 
-.scoreBadge.high { background: var(--accent-secondary); }
-.scoreBadge.mid { background: #f0c44a; }
-.scoreBadge.low { background: #cbd5d1; }
+/* Rampa de grises fija: va sobre la miniatura, no sobre el tema */
+.scoreBadge.high { background: #fafafa; color: #0a0a0b; }
+.scoreBadge.mid { background: #71717a; color: #fafafa; }
+.scoreBadge.low { background: rgba(10, 10, 11, 0.75); color: #a1a1aa; }
 
 .cardBody {
   flex: 1;

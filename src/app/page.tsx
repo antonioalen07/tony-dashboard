@@ -91,7 +91,7 @@ export default function Dashboard() {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>{greeting}, Antonio.</h1>
-          <p className={styles.subtitle}>Resumen ejecutivo de Crevy Content</p>
+          <p className={styles.subtitle}>Resumen ejecutivo de Dashboard Content</p>
         </div>
       </header>
 

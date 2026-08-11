@@ -6,7 +6,7 @@
   justify-content: center;
   padding: 1.5rem;
   background:
-    radial-gradient(60% 60% at 50% 0%, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent),
+    radial-gradient(60% 60% at 50% 0%, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent),
     var(--bg-color);
 }
 
@@ -46,7 +46,7 @@
 .brandProduct {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--accent-primary);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }

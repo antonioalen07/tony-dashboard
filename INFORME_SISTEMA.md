@@ -1,4 +1,4 @@
-# Informe del sistema — Crevy Content + Crevy Studio
+# Informe del sistema — Dashboard Content + Studio
 
 > Documento de referencia ("precedente"): qué es el sistema, cómo está armado, y
 > **el requerimiento mínimo** para hacerlo funcionar de cero — APIs, tokens,
@@ -11,7 +11,7 @@
 Un dashboard personal de inteligencia y producción de contenido para Instagram.
 Dos grandes bloques:
 
-- **Crevy Content** — métricas de la cuenta, análisis con IA, inspiración
+- **Dashboard Content** — métricas de la cuenta, análisis con IA, inspiración
   (reels de la competencia), chat con IA sobre tu contenido.
 - **Crevy Studio** — producción: editor de **Historias** (9:16), generador de
   **Variantes** de video (para testear cuál rinde), y **Calendario** de publicación.
@@ -139,7 +139,7 @@ en Easypanel. Al renovar el token hay que actualizarlo en **los dos lados**.
 
 - **Frontend/Backend:** Next.js 16 (App Router; el middleware se llama `src/proxy.ts`),
   React 19, TypeScript, CSS Modules con tokens de diseño en `globals.css`
-  (tema oscuro glass "Cinematic Precision", acento indigo `#5E6BFF`, Manrope + Inter).
+  (tema oscuro glass "Cinematic Precision", paleta monocroma negro + grafito, Manrope + Inter).
 - **Auth:** login propio por cookie firmada (`AUTH_USERS`/`AUTH_SECRET`), `proxy.ts`
   bloquea todo salvo `/login` y protege las APIs con 401.
 - **Studio – Historias:** editor canvas 9:16 (`storyRender.ts`), capas de texto,

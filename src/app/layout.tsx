@@ -4,8 +4,8 @@ import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
-  title: 'Crevy Content',
-  description: 'Inteligencia de contenido de Instagram para Crevy',
+  title: 'Dashboard Content',
+  description: 'Inteligencia de contenido de Instagram',
 };
 
 // Se ejecuta antes del primer paint para evitar parpadeo de tema.

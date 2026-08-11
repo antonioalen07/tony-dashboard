@@ -1,6 +1,6 @@
-# Crevy Content
+# Dashboard Content
 
-Centro de mando de contenido de Instagram para la marca personal **Crevy** (`tony.ia_`).
+Centro de mando de contenido de Instagram para la marca personal (`tony.ia_`).
 Next.js 16 + React 19 + Supabase + OpenRouter (Claude 3.5 Haiku) + Apify + ElevenLabs + Meta Graph API.
 
 ## Qué hace

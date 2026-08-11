@@ -3,35 +3,57 @@ interface LogoProps {
 }
 
 /**
- * Lettermark "N" de la marca personal, recreado como badge circular oscuro
- * con un sutil glow indigo. Se ve bien sobre fondo claro u oscuro.
+ * Monograma "DC" (Dashboard Content): badge grafito con letterforms monolineales
+ * geométricas — D en blanco (primaria) y C en gris medio (secundaria). Sin color:
+ * la jerarquía la da la luminancia, así que se ve igual sobre fondo claro u oscuro.
  */
 export default function Logo({ size = 34 }: LogoProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Logo">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="Dashboard Content"
+    >
       <defs>
-        <radialGradient id="logoGlow" cx="50%" cy="38%" r="62%">
-          <stop offset="0%" stopColor="#191a20" />
-          <stop offset="100%" stopColor="#070708" />
-        </radialGradient>
-        <linearGradient id="logoN" x1="20" y1="18" x2="44" y2="46" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#dfe1ff" />
+        {/* Filo de luz: marcado arriba, se apaga hacia abajo */}
+        <linearGradient id="dcRim" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.26" />
+          <stop offset="55%" stopColor="#ffffff" stopOpacity="0.09" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0.04" />
         </linearGradient>
       </defs>
 
-      {/* Badge */}
-      <circle cx="32" cy="32" r="31" fill="url(#logoGlow)" />
-      <circle cx="32" cy="32" r="31" stroke="#5e6bff" strokeOpacity="0.32" strokeWidth="1.5" />
-      <circle cx="32" cy="32" r="27.5" stroke="#ffffff" strokeOpacity="0.06" strokeWidth="1" />
-
-      {/* Lettermark N */}
-      <path
-        d="M22 44V20h4.6l10.8 15.4V20H42v24h-4.6L26.6 28.6V44H22Z"
-        fill="url(#logoN)"
+      {/* Badge grafito */}
+      <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="17" fill="#17171a" />
+      <rect
+        x="0.75"
+        y="0.75"
+        width="62.5"
+        height="62.5"
+        rx="17"
+        stroke="url(#dcRim)"
+        strokeWidth="1.5"
       />
-      {/* Punto/acento */}
-      <circle cx="40.6" cy="22.2" r="2.5" fill="#5e6bff" />
+
+      {/* D */}
+      <path
+        d="M9 21h7.5a10.5 10.5 0 0 1 0 21H9z"
+        stroke="#fafafa"
+        strokeWidth="4"
+        strokeLinejoin="round"
+      />
+
+      {/* C */}
+      <path
+        d="M50.46 23.23A10.5 10.5 0 1 0 50.46 39.77"
+        stroke="#a1a1aa"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

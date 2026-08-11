@@ -45,7 +45,7 @@ export default function LoginPage() {
         <div className={styles.brand}>
           <Logo size={48} />
           <div className={styles.brandText}>
-            <span className={styles.brandName}>Crevy</span>
+            <span className={styles.brandName}>Dashboard</span>
             <span className={styles.brandProduct}>Content</span>
           </div>
         </div>

@@ -75,7 +75,7 @@ export default function Sidebar() {
           <div className={styles.logo}>
             <Logo size={36} />
             <div className={styles.logoText}>
-              <span className={styles.brand}>Crevy</span>
+              <span className={styles.brand}>Dashboard</span>
               <span className={styles.product}>Content</span>
             </div>
           </div>

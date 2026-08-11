@@ -3,28 +3,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Black&family=Bebas+Neue&family=Caveat:wght@400;700&family=Courier+Prime:wght@400;700&family=Dancing+Script:wght@400;700&family=Lobster&family=Oswald:wght@400;600;700&family=Pacifico&family=Poppins:wght@400;600;700;800&display=swap');
 
 /* ===========================================================================
-   Crevy Content — sistema de tokens
+   Dashboard Content — sistema de tokens
    Tema oscuro por defecto (:root) + tema claro ([data-theme="light"]).
    Estética: "Cinematic Precision" — casi negro + glass iOS, bordes finos e
-   inner-glow, textura de puntos sutil. Acento de marca: indigo #5E6BFF, con
-   cian y naranja como secundarios. Color reservado a acción / estado.
+   inner-glow, textura de puntos sutil. Paleta monocroma: negro + grafito, sin
+   matiz de marca. Lo que señala acción / selección / estado es el contraste,
+   no el color: el acento se define como salto de luminancia contra la
+   superficie, así que se invierte con el tema. Únicos matices del sistema:
+   los semánticos (positivo / negativo), desaturados.
    =========================================================================== */
 
 :root {
   /* Superficies (near-black, alto contraste sutil entre capas) */
   --bg-color: #070708;
-  --sidebar-bg: #0c0d0f;
-  --card-bg: #101114;
-  --card-elevated: #16171b;
+  --sidebar-bg: #0d0d0f;
+  --card-bg: #131315;
+  --card-elevated: #18181b;
   --card-border: rgba(255, 255, 255, 0.07);
 
   /* Textura de puntos del fondo */
   --dot-color: rgba(255, 255, 255, 0.028);
 
   /* Texto */
-  --text-primary: #ecebee;
-  --text-secondary: #9a9da3;
-  --text-tertiary: #c7c9cf; /* cuerpo dentro de paneles */
+  --text-primary: #f0f0f2;
+  --text-secondary: #9a9aa2;
+  --text-tertiary: #c8c8ce; /* cuerpo dentro de paneles */
 
   /* Capas internas (sustituyen rgba(255,255,255,.0x) hardcodeados) */
   --hover-bg: rgba(255, 255, 255, 0.05);
@@ -34,27 +37,27 @@
   --surface-border: rgba(255, 255, 255, 0.08);
   --inner-glow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 
-  /* Acento indigo Crevy */
-  --accent-primary: #7c86ff;  /* enlaces, labels, iconos, selección */
-  --accent-strong: #5e6bff;   /* fondo de botón primario */
-  --accent-hover: #4a58f5;
-  --on-accent: #ffffff;       /* texto sobre botón primario */
-  --accent-soft: rgba(94, 107, 255, 0.14);
-  --accent-glow: 0 0 24px rgba(94, 107, 255, 0.25);
+  /* Acento grafito: sobre negro, el acento sube en luminancia (no en matiz) */
+  --accent-primary: #e4e4e7;  /* enlaces, labels, iconos, selección */
+  --accent-strong: #e8e8ec;   /* fondo de botón primario */
+  --accent-hover: #ffffff;
+  --on-accent: #0a0a0b;       /* texto sobre botón primario */
+  --accent-soft: rgba(255, 255, 255, 0.08);
+  --accent-glow: 0 0 24px rgba(255, 255, 255, 0.07);
 
-  /* Secundarios de marca */
-  --accent-secondary: #22c9dc; /* cian */
-  --accent-tertiary: #ff8a3d;  /* naranja */
+  /* Secundarios: escalones de la misma rampa de grises */
+  --accent-secondary: #a1a1aa;
+  --accent-tertiary: #71717a;
 
-  /* Estado */
-  --accent-positive: #22c9dc;
-  --accent-negative: #ff6b6b;
+  /* Estado (único matiz del sistema, desaturado) */
+  --accent-positive: #74b58c;
+  --accent-negative: #e0645c;
 
   /* Charts */
   --chart-grid: rgba(255, 255, 255, 0.06);
-  --chart-axis: #6b6c72;
-  --chart-line: #5e6bff;
-  --chart-line-2: #22c9dc;
+  --chart-axis: #6e6e77;
+  --chart-line: #e4e4e7;
+  --chart-line-2: #7d7d87;
   --chart-cursor: rgba(255, 255, 255, 0.06);
 
   /* Overlays / sombras */
@@ -72,47 +75,48 @@
 }
 
 [data-theme='light'] {
-  --bg-color: #f5f6f9;
+  --bg-color: #f6f6f7;
   --sidebar-bg: #ffffff;
   --card-bg: #ffffff;
   --card-elevated: #ffffff;
-  --card-border: #e4e6ec;
+  --card-border: #e4e4e7;
 
-  --dot-color: rgba(20, 22, 30, 0.04);
+  --dot-color: rgba(16, 16, 18, 0.04);
 
-  --text-primary: #12131a;
-  --text-secondary: #61646e;
-  --text-tertiary: #33353f;
+  --text-primary: #101012;
+  --text-secondary: #62626b;
+  --text-tertiary: #3a3a41;
 
-  --hover-bg: rgba(20, 22, 30, 0.045);
-  --surface-1: rgba(20, 22, 30, 0.028);
-  --surface-2: rgba(20, 22, 30, 0.055);
-  --surface-strong: rgba(20, 22, 30, 0.09);
-  --surface-border: rgba(20, 22, 30, 0.09);
+  --hover-bg: rgba(16, 16, 18, 0.045);
+  --surface-1: rgba(16, 16, 18, 0.028);
+  --surface-2: rgba(16, 16, 18, 0.055);
+  --surface-strong: rgba(16, 16, 18, 0.09);
+  --surface-border: rgba(16, 16, 18, 0.09);
   --inner-glow: inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
 
-  --accent-primary: #4a58f5;
-  --accent-strong: #5e6bff;
-  --accent-hover: #4a58f5;
+  /* En claro el acento baja en luminancia: grafito sobre blanco */
+  --accent-primary: #26262a;
+  --accent-strong: #1c1c1f;
+  --accent-hover: #35353b;
   --on-accent: #ffffff;
-  --accent-soft: rgba(94, 107, 255, 0.1);
-  --accent-glow: 0 0 20px rgba(94, 107, 255, 0.18);
+  --accent-soft: rgba(16, 16, 18, 0.07);
+  --accent-glow: 0 0 20px rgba(16, 16, 18, 0.1);
 
-  --accent-secondary: #0e9aab;
-  --accent-tertiary: #d9660f;
+  --accent-secondary: #52525b;
+  --accent-tertiary: #71717a;
 
-  --accent-positive: #0e9aab;
-  --accent-negative: #dc2626;
+  --accent-positive: #2f7d52;
+  --accent-negative: #c0392f;
 
-  --chart-grid: #e4e6ec;
-  --chart-axis: #8a8d97;
-  --chart-line: #5e6bff;
-  --chart-line-2: #0e9aab;
-  --chart-cursor: rgba(20, 22, 30, 0.05);
+  --chart-grid: #e4e4e7;
+  --chart-axis: #8a8a93;
+  --chart-line: #26262a;
+  --chart-line-2: #a1a1aa;
+  --chart-cursor: rgba(16, 16, 18, 0.05);
 
-  --overlay-bg: rgba(20, 22, 30, 0.45);
-  --shadow-panel: 0 1px 2px rgba(20, 22, 30, 0.04), 0 4px 16px rgba(20, 22, 30, 0.05);
-  --shadow-pop: 0 12px 32px rgba(20, 22, 30, 0.14);
+  --overlay-bg: rgba(16, 16, 18, 0.45);
+  --shadow-panel: 0 1px 2px rgba(16, 16, 18, 0.04), 0 4px 16px rgba(16, 16, 18, 0.05);
+  --shadow-pop: 0 12px 32px rgba(16, 16, 18, 0.14);
 }
 
 * {

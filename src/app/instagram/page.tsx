@@ -115,7 +115,7 @@ export default function InstagramIntelligence() {
     <div className={styles.container}>
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Crevy Content</h1>
+          <h1 className={styles.title}>Dashboard Content</h1>
           <p className={styles.subtitle}>Análisis profundo de tus Reels</p>
         </div>
         <button onClick={handleSync} disabled={syncing} className={styles.syncBtn}>
