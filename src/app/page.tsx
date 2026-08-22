@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import MetricCard from '@/components/MetricCard';
 import ReachChart from '@/components/ReachChart';
 import AudienceChart from '@/components/AudienceChart';
 import TopContentList from '@/components/TopContentList';
 import { Users, Eye, Bookmark, TrendingUp, Film, MessageCircle } from 'lucide-react';
+import DateRangeFilter from '@/components/DateRangeFilter';
 import { supabase } from '@/utils/supabase';
+import { ALL_TIME, filterByRange, isFiltered, sanitizeRange, type DateRange } from '@/lib/dateRange';
+import { loadWork, saveWork } from '@/lib/workSession';
 import styles from './page.module.css';
 
 const FOLLOWER_GOAL = 50000;
@@ -35,6 +38,18 @@ export default function Dashboard() {
   const [reels, setReels] = useState<any[]>([]);
   const [followers, setFollowers] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<DateRange>(ALL_TIME);
+
+  // El rango elegido sobrevive al ir y volver entre secciones dentro de la misma
+  // pestaña. Se hidrata después del montaje para no romper el render del server.
+  useEffect(() => {
+    setRange(sanitizeRange(loadWork('dash-range', ALL_TIME)));
+  }, []);
+
+  const changeRange = (next: DateRange) => {
+    setRange(next);
+    saveWork('dash-range', next);
+  };
 
   useEffect(() => {
     const fetchReels = async () => {
@@ -57,16 +72,22 @@ export default function Dashboard() {
     fetchProfile();
   }, []);
 
-  // Métricas
-  const totalReels = reels.length;
-  const totalViews = reels.reduce((sum, r) => sum + (r.views || 0), 0);
-  const totalSaves = reels.reduce((sum, r) => sum + (r.saves || 0), 0);
+  const shown = useMemo(() => filterByRange(reels, range), [reels, range]);
+  const filtering = isFiltered(range);
+
+  // Métricas — sobre el rango elegido.
+  const totalReels = shown.length;
+  const totalViews = shown.reduce((sum, r) => sum + (r.views || 0), 0);
+  const totalSaves = shown.reduce((sum, r) => sum + (r.saves || 0), 0);
   // "Conversaciones": los comentarios son el único engagement que abre un ida y
   // vuelta, así que se miran aparte de likes/guardados.
-  const totalComments = reels.reduce((sum, r) => sum + (r.comments || 0), 0);
-  const totalReach = reels.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
+  const totalComments = shown.reduce((sum, r) => sum + (r.comments || 0), 0);
+  const totalReach = shown.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
 
-  const reelsWithER = reels.filter((r) => r.engagement_rate);
+  // Los objetivos son acumulados de por vida: no dependen del rango.
+  const lifetimeViews = reels.reduce((sum, r) => sum + (r.views || 0), 0);
+
+  const reelsWithER = shown.filter((r) => r.engagement_rate);
   const avgER =
     reelsWithER.length > 0
       ? (reelsWithER.reduce((sum, r) => sum + r.engagement_rate, 0) / reelsWithER.length).toFixed(1) + '%'
@@ -78,17 +99,19 @@ export default function Dashboard() {
     return num.toString();
   };
 
-  // Deltas mes actual vs mes pasado (solo si hay datos de ambos meses)
-  const reachDelta = monthlyDelta(reels, (r) => r.reach || r.views || 0);
-  const savesDelta = monthlyDelta(reels, (r) => r.saves || 0);
-  const reelsDelta = monthlyDelta(reels, () => 1);
-  const commentsDelta = monthlyDelta(reels, (r) => r.comments || 0);
+  // Deltas mes actual vs mes pasado (solo si hay datos de ambos meses).
+  // Con un rango activo se ocultan: comparar "mes contra mes" sobre una ventana
+  // recortada da un número que parece una tendencia y no lo es.
+  const reachDelta = filtering ? null : monthlyDelta(reels, (r) => r.reach || r.views || 0);
+  const savesDelta = filtering ? null : monthlyDelta(reels, (r) => r.saves || 0);
+  const reelsDelta = filtering ? null : monthlyDelta(reels, () => 1);
+  const commentsDelta = filtering ? null : monthlyDelta(reels, (r) => r.comments || 0);
 
   const hour = new Date().getHours();
   const greeting = hour < 6 ? 'Buenas noches' : hour < 13 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
 
   const followerPct = followers ? Math.min((followers / FOLLOWER_GOAL) * 100, 100) : 0;
-  const viewsPct = Math.min((totalViews / 1000000) * 100, 100);
+  const viewsPct = Math.min((lifetimeViews / 1000000) * 100, 100);
 
   return (
     <div className={styles.dashboard}>
@@ -99,9 +122,17 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <DateRangeFilter
+        value={range}
+        onChange={changeRange}
+        count={loading ? undefined : shown.length}
+        total={loading ? undefined : reels.length}
+        note="Seguidores, audiencia por país y objetivos son valores de hoy o acumulados: no cambian con el rango."
+      />
+
       <div className={styles.metricsGrid}>
         <MetricCard
-          title="Seguidores"
+          title={filtering ? 'Seguidores (hoy)' : 'Seguidores'}
           value={followers != null ? formatNumber(followers) : 'N/A'}
           icon={<Users size={18} />}
           loading={loading && followers == null}
@@ -139,7 +170,7 @@ export default function Dashboard() {
 
       <div className={styles.chartsRow}>
         <div className={styles.reachChartWrapper}>
-          <ReachChart reels={reels} />
+          <ReachChart reels={shown} />
         </div>
         <div className={styles.goalsWrapper}>
           <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -166,7 +197,7 @@ export default function Dashboard() {
             <div className={styles.goal}>
               <div className={styles.goalHeader}>
                 <span>Views Orgánicas (total)</span>
-                <span className="text-secondary">{formatNumber(totalViews)} / 1.0M</span>
+                <span className="text-secondary">{formatNumber(lifetimeViews)} / 1.0M</span>
               </div>
               <div className={styles.progressBar}>
                 <div className={styles.progressFill} style={{ width: `${viewsPct}%` }} />
@@ -181,7 +212,7 @@ export default function Dashboard() {
 
       <div className={styles.bottomRow}>
         <div className={styles.topContentWrapper}>
-          <TopContentList />
+          <TopContentList reels={shown} />
         </div>
         <div className={styles.audienceWrapper}>
           <AudienceChart />

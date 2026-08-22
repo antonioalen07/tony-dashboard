@@ -238,3 +238,12 @@
   color: var(--text-primary);
   white-space: nowrap;
 }
+
+/* Vacío por filtro de fechas — distinto de "todavía no sincronizaste". */
+.emptyRange {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.emptyRange strong { color: var(--text-primary); }

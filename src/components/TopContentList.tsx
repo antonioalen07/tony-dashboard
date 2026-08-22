@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/utils/supabase';
 import { Eye, Bookmark } from 'lucide-react';
 import { coverSrc } from '@/lib/covers';
@@ -13,22 +13,34 @@ const formatNumber = (num: number) => {
   return num.toString();
 };
 
-export default function TopContentList() {
-  const [topReels, setTopReels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+interface TopContentListProps {
+  /** Reels ya filtrados por el rango. Sin la prop, la lista se trae sola. */
+  reels?: any[];
+}
+
+export default function TopContentList({ reels }: TopContentListProps = {}) {
+  const controlled = reels != null;
+  const [fetched, setFetched] = useState<any[]>([]);
+  const [loading, setLoading] = useState(!controlled);
 
   useEffect(() => {
+    if (controlled) return;
     const fetchTopReels = async () => {
       const { data } = await supabase
         .from('reels')
         .select('*')
         .order('views', { ascending: false })
         .limit(4);
-      if (data) setTopReels(data);
+      if (data) setFetched(data);
       setLoading(false);
     };
     fetchTopReels();
-  }, []);
+  }, [controlled]);
+
+  const topReels = useMemo(() => {
+    const source = controlled ? reels! : fetched;
+    return [...source].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 4);
+  }, [controlled, reels, fetched]);
 
   return (
     <div className="glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -55,7 +67,9 @@ export default function TopContentList() {
         </div>
       ) : topReels.length === 0 ? (
         <div className={styles.empty}>
-          Aún no hay reels. Ve a <a href="/instagram" className={styles.viewAll}>Instagram</a> y sincroniza.
+          {controlled
+            ? 'No hay reels publicados en el rango elegido.'
+            : 'Aún no hay reels sincronizados.'}
         </div>
       ) : (
         <div className={styles.list}>

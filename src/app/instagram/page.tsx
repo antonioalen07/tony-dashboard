@@ -4,9 +4,12 @@ import { useMemo, useState, useEffect } from 'react';
 import { RefreshCw, MessageCircle } from 'lucide-react';
 import ReelGrid from '@/components/ReelGrid';
 import ReelDetailPanel from '@/components/ReelDetailPanel';
+import DateRangeFilter from '@/components/DateRangeFilter';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import { median } from '@/lib/viral';
+import { ALL_TIME, filterByRange, sanitizeRange, type DateRange } from '@/lib/dateRange';
+import { loadWork, saveWork } from '@/lib/workSession';
 import styles from './page.module.css';
 
 type SortMode = 'recent' | 'views' | 'er' | 'comments';
@@ -33,6 +36,18 @@ export default function InstagramIntelligence() {
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('recent');
+  const [range, setRange] = useState<DateRange>(ALL_TIME);
+
+  // Rango propio de esta sección: mirar el detalle de un mes acá no debería
+  // reencuadrar el dashboard, ni al revés.
+  useEffect(() => {
+    setRange(sanitizeRange(loadWork('ig-range', ALL_TIME)));
+  }, []);
+
+  const changeRange = (next: DateRange) => {
+    setRange(next);
+    saveWork('ig-range', next);
+  };
 
   const fetchReels = async () => {
     const { data } = await supabase
@@ -47,13 +62,15 @@ export default function InstagramIntelligence() {
     fetchReels();
   }, []);
 
+  const shown = useMemo(() => filterByRange(reels, range), [reels, range]);
+
   const sortedReels = useMemo(() => {
-    const copy = [...reels];
+    const copy = [...shown];
     if (sort === 'views') copy.sort((a, b) => (b.views || 0) - (a.views || 0));
     else if (sort === 'er') copy.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
     else if (sort === 'comments') copy.sort((a, b) => (b.comments || 0) - (a.comments || 0));
     return copy;
-  }, [reels, sort]);
+  }, [shown, sort]);
 
   /**
    * Comentarios = conversaciones abiertas. Se miran en dos planos: el volumen
@@ -61,27 +78,27 @@ export default function InstagramIntelligence() {
    * permite comparar un reel chico con uno que explotó.
    */
   const commentStats = useMemo(() => {
-    const total = reels.reduce((sum, r) => sum + (r.comments || 0), 0);
-    const reach = reels.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
-    const withComments = reels.filter((r) => (r.comments || 0) > 0).length;
-    const top = reels.reduce(
+    const total = shown.reduce((sum, r) => sum + (r.comments || 0), 0);
+    const reach = shown.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
+    const withComments = shown.filter((r) => (r.comments || 0) > 0).length;
+    const top = shown.reduce(
       (best, r) => ((r.comments || 0) > (best?.comments || 0) ? r : best),
       null as any,
     );
     return {
       total,
-      avgPerReel: reels.length > 0 ? total / reels.length : 0,
+      avgPerReel: shown.length > 0 ? total / shown.length : 0,
       // Por 1.000 de alcance: en esta cuenta los números por reel son chicos y
       // un porcentaje se leería siempre como "0,4 %".
       rate: reach > 0 ? (total * 1000) / reach : 0,
       withComments,
       top: top && (top.comments || 0) > 0 ? top : null,
     };
-  }, [reels]);
+  }, [shown]);
 
   const medianViews = useMemo(
-    () => median(reels.map((r) => r.views || 0).filter((v: number) => v > 0)),
-    [reels]
+    () => median(shown.map((r) => r.views || 0).filter((v: number) => v > 0)),
+    [shown]
   );
 
   // Enriquecimiento automático: transcribe + analiza los reels que aún no lo estén.
@@ -157,14 +174,20 @@ export default function InstagramIntelligence() {
         </button>
       </header>
 
+      <DateRangeFilter
+        value={range}
+        onChange={changeRange}
+        count={loading ? undefined : shown.length}
+        total={loading ? undefined : reels.length}
+      />
+
       <section className={`glass-panel ${styles.commentsPanel}`}>
         <div className={styles.commentsHead}>
           <h2 className={styles.commentsTitle}>
             <MessageCircle size={15} className={styles.commentsIcon} /> Conversaciones generadas
           </h2>
           <p className={styles.commentsSub}>
-            Comentarios sobre {reels.length} reel{reels.length === 1 ? '' : 's'} sincronizado
-            {reels.length === 1 ? '' : 's'}.
+            Comentarios sobre {shown.length} reel{shown.length === 1 ? '' : 's'} en el rango elegido.
           </p>
         </div>
         <div className={styles.commentsGrid}>
@@ -183,7 +206,7 @@ export default function InstagramIntelligence() {
           <div className={styles.commentStat}>
             <span className={styles.commentValue}>
               {commentStats.withComments}
-              <span className={styles.commentValueSoft}>/{reels.length}</span>
+              <span className={styles.commentValueSoft}>/{shown.length}</span>
             </span>
             <span className={styles.commentLabel}>Reels con conversación</span>
           </div>
@@ -205,7 +228,7 @@ export default function InstagramIntelligence() {
 
       <div className={styles.filters}>
         <div className={styles.filterLeft}>
-          <span className={styles.filterText}>Todos los reels ({reels.length})</span>
+          <span className={styles.filterText}>Ordenar por</span>
           <div className={styles.sortGroup} role="group" aria-label="Ordenar reels">
             {SORTS.map((s) => (
               <button
@@ -224,6 +247,11 @@ export default function InstagramIntelligence() {
       <div className={styles.gridContainer}>
         {loading ? (
           <p style={{ color: 'var(--text-secondary)' }}>Cargando reels desde Supabase…</p>
+        ) : reels.length > 0 && shown.length === 0 ? (
+          <p className={styles.emptyRange}>
+            Ninguno de tus {reels.length} reels cae en el rango elegido. Ampliá las fechas o tocá
+            <strong> Limpiar</strong>.
+          </p>
         ) : (
           <ReelGrid reels={sortedReels} onSelectReel={setSelectedReel} />
         )}
