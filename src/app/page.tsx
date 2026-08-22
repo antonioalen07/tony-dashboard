@@ -5,7 +5,7 @@ import MetricCard from '@/components/MetricCard';
 import ReachChart from '@/components/ReachChart';
 import AudienceChart from '@/components/AudienceChart';
 import TopContentList from '@/components/TopContentList';
-import { Users, Eye, Bookmark, TrendingUp, Film } from 'lucide-react';
+import { Users, Eye, Bookmark, TrendingUp, Film, MessageCircle } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import styles from './page.module.css';
 
@@ -61,6 +61,9 @@ export default function Dashboard() {
   const totalReels = reels.length;
   const totalViews = reels.reduce((sum, r) => sum + (r.views || 0), 0);
   const totalSaves = reels.reduce((sum, r) => sum + (r.saves || 0), 0);
+  // "Conversaciones": los comentarios son el único engagement que abre un ida y
+  // vuelta, así que se miran aparte de likes/guardados.
+  const totalComments = reels.reduce((sum, r) => sum + (r.comments || 0), 0);
   const totalReach = reels.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
 
   const reelsWithER = reels.filter((r) => r.engagement_rate);
@@ -79,6 +82,7 @@ export default function Dashboard() {
   const reachDelta = monthlyDelta(reels, (r) => r.reach || r.views || 0);
   const savesDelta = monthlyDelta(reels, (r) => r.saves || 0);
   const reelsDelta = monthlyDelta(reels, () => 1);
+  const commentsDelta = monthlyDelta(reels, (r) => r.comments || 0);
 
   const hour = new Date().getHours();
   const greeting = hour < 6 ? 'Buenas noches' : hour < 13 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
@@ -115,6 +119,13 @@ export default function Dashboard() {
           icon={<Bookmark size={18} />}
           loading={loading}
           {...(savesDelta ? { trend: savesDelta.trend, trendValue: savesDelta.label } : {})}
+        />
+        <MetricCard
+          title="Conversaciones"
+          value={formatNumber(totalComments)}
+          icon={<MessageCircle size={18} />}
+          loading={loading}
+          {...(commentsDelta ? { trend: commentsDelta.trend, trendValue: commentsDelta.label } : {})}
         />
         <MetricCard title="Engagement Rate" value={avgER} icon={<TrendingUp size={18} />} loading={loading} />
         <MetricCard

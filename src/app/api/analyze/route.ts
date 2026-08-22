@@ -1,31 +1,12 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
-import { TONY_BRAND, VARIABLES_FUNCIONARON, VARIABLES_FALLARON } from '@/lib/brand';
+import { loadBlocks } from '@/lib/aiSettings';
+import { composeAnalyzeSystemPrompt } from '@/lib/promptConfig';
 
 export const dynamic = 'force-dynamic';
 
-// Análisis por reel calibrado contra la estrategia real de Tony (kit de marca).
-const SYSTEM_PROMPT = `Sos el analista de contenido personal de Tony. Analizás cada Reel suyo contra SU estrategia real, no contra consejos genéricos de Instagram.
 
-${TONY_BRAND}
-
-## VOCABULARIO DE VARIABLES (etiquetá contra estas listas probadas)
-Variables que históricamente le FUNCIONARON: ${VARIABLES_FUNCIONARON.join(', ')}.
-Variables que históricamente le FALLARON: ${VARIABLES_FALLARON.join(', ')}.
-
-Respondé ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después, sin markdown):
-{
-  "ai_analysis": [ "punto 1", "punto 2", "punto 3" ],
-  "improvement": "una sugerencia accionable y concreta"
-}
-
-- "ai_analysis": exactamente 3 strings, cada uno un factor distinto:
-  1. HOOK: citá el hook literal de la transcripción y evaluá si frena el scroll del avatar (dueño de pyme), nombrando la variable del vocabulario que aplica.
-  2. ESTRUCTURA Y PILAR: a qué pilar del kit pertenece, si aterriza a negocio o queda técnico, y cómo se refleja en los números (guardados/compartidos = valor percibido).
-  3. CTA Y CONVERSIÓN: el CTA exacto usado, si es directo tipo "Comentá X", y qué dicen los comentarios/ER sobre su efectividad.
-- "improvement": LA mejora de mayor impacto para el próximo reel, específica y en su voz (no genérica).
-Respondé en español rioplatense.`;
 
 /** Extrae el primer objeto JSON de un texto, tolerando fences ```json y ruido. */
 function parseModelJSON(raw: string): { ai_analysis: string[]; improvement: string } {
@@ -70,6 +51,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Reel not found' }, { status: 404 });
     }
 
+    // Los ejes de análisis y el vocabulario de variables son editables desde
+    // la app (Chat → Entrenamiento de la IA); sin migración caen al default.
+    const { blocks } = await loadBlocks();
+
     // Usa la transcripción si existe; si no, el caption/título como base.
     const hasTranscript = Boolean(reel.transcript && reel.transcript.trim());
     const contentToAnalyze = hasTranscript
@@ -79,7 +64,7 @@ export async function POST(request: Request) {
     const completion = await llm.chat.completions.create({
       model: LLM_MODEL,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: composeAnalyzeSystemPrompt(blocks) },
         {
           role: 'user',
           content: `Analiza este Reel.

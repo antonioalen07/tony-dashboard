@@ -8,6 +8,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
   margin-bottom: 1rem;
 }
 
@@ -25,7 +27,9 @@
 
 .metricsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  /* 170px deja entrar las 6 tarjetas (con Conversaciones) en un portátil sin
+     que ninguna quede cortada. */
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 1rem;
 }
 

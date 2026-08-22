@@ -549,7 +549,7 @@ export default function VariantesPage() {
         ({ error } = await supabase.from('publish_queue').insert(base));
         if (!error) {
           setSentIds((prev) => new Set(prev).add(v.id));
-          toast('Encolada, pero SIN el caption: falta correr supabase_migration_studio.sql', 'error');
+          toast('Encolada, pero SIN el caption: falta correr supabase_migration_ai_config.sql', 'error');
           return;
         }
       }
@@ -693,7 +693,7 @@ export default function VariantesPage() {
           <span>
             <strong>La base está atrasada:</strong> falta la columna <code>caption</code> en{' '}
             <code>publish_queue</code>. Las variantes se encolan igual, pero sin el texto del post.
-            Corré <code>supabase_migration_studio.sql</code> en el SQL Editor de Supabase.
+            Corré <code>supabase_migration_ai_config.sql</code> en el SQL Editor de Supabase.
           </span>
         </div>
       )}

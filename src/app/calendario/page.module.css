@@ -147,10 +147,20 @@
   padding-bottom: 4px;
 }
 
+/* Con 7 columnas, por debajo de ~700px las celdas se vuelven ilegibles y los
+   botones de cada chip quedan fuera de alcance. El mes scrollea en horizontal
+   dentro de su propio contenedor en vez de recortarse. */
+.gridScroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+}
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(96px, 1fr));
   gap: 6px;
+  min-width: 700px;
 }
 
 .cell {
@@ -266,27 +276,6 @@
 .chipBtn[data-on='true'] { color: var(--accent-primary); }
 
 /* Editor de caption: se despliega por encima del chip (las celdas son chicas). */
-.captionBox {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 20;
-  width: max(220px, 100%);
-  margin-top: 4px;
-  padding: 6px 8px;
-  font-size: 0.72rem;
-  font-family: inherit;
-  line-height: 1.4;
-  resize: vertical;
-  background: var(--card-bg);
-  border: 1px solid var(--accent-primary);
-  border-radius: 6px;
-  color: var(--text-primary);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
-  outline: none;
-}
-.captionBox::placeholder { color: var(--text-secondary); }
-
 /* ---- Colores por status (SOLO tokens) ---- */
 .pending .chipDot { background: var(--text-secondary); }
 
@@ -315,3 +304,112 @@
   .cell { min-height: 72px; }
   .chipKind { display: none; }
 }
+
+
+/* ---- Editor de caption (diálogo) ---- */
+.captionOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-bg);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.captionDialog {
+  width: 100%;
+  max-width: 540px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.captionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.captionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.captionClose {
+  background: var(--surface-2);
+  border: none;
+  color: var(--text-primary);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+
+.captionClose:hover { background: var(--surface-strong); }
+
+.captionMeta {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.captionArea {
+  width: 100%;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 0.7rem 0.85rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.captionArea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--surface-border));
+}
+
+.captionFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.captionCount { font-size: 0.72rem; color: var(--text-secondary); }
+
+.captionActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+}
+
+.ghostBtn:hover { background: var(--accent-soft); color: var(--accent-primary); }

@@ -5,7 +5,13 @@
   height: 100%;
 }
 
-.header { display: flex; justify-content: space-between; align-items: center; }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
 
 .title { font-size: 1.5rem; font-weight: 600; color: var(--text-primary); }
 
@@ -16,8 +22,18 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 230px 1fr;
+  grid-template-columns: 230px minmax(0, 1fr);
   gap: 1rem;
+}
+
+/* En pantallas medianas la columna de sesiones se come el chat: pasa arriba. */
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sessions { max-height: 190px; }
 }
 
 .sessions {
@@ -315,4 +331,31 @@
 @media (max-width: 700px) {
   .suggestions { grid-template-columns: 1fr; }
   .bubble { max-width: 88%; }
+}
+
+/* ---- Cabecera: textos + acceso al entrenamiento de la IA ---- */
+.headTexts { min-width: 0; }
+
+.trainBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.trainBtn:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--surface-border));
+  color: var(--accent-primary);
 }

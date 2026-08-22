@@ -1,4 +1,4 @@
-import { FileText, Sparkles } from 'lucide-react';
+import { FileText, Sparkles, MessageCircle } from 'lucide-react';
 import { coverSrc } from '@/lib/covers';
 import styles from './ReelGrid.module.css';
 
@@ -56,6 +56,9 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
               <h4 className={styles.title}>{reel.title}</h4>
               <div className={styles.stats}>
                 <span>{fmt(reel.views || 0)} vistas</span>
+                <span className={styles.comments} title={`${reel.comments || 0} comentarios`}>
+                  <MessageCircle size={11} /> {fmt(reel.comments || 0)}
+                </span>
                 {reel.engagement_rate != null && (
                   <span className={styles.retention}>{reel.engagement_rate}% ER</span>
                 )}

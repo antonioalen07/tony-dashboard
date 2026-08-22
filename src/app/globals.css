@@ -168,9 +168,22 @@ h1, h2, h3, h4, h5, h6 {
 
 .main-content {
   flex: 1;
+  /* Sin min-width:0 un hijo ancho (grilla, tabla) estira el flex item y empuja
+     el contenido fuera de la pantalla, donde el clip del body lo volvía
+     inalcanzable salvo a pantalla completa o con zoom reducido. */
+  min-width: 0;
   padding: 2rem;
   overflow-y: auto;
-  height: 100vh;
+  /* Si algo sigue siendo más ancho que el área útil, se scrollea; nunca se
+     recorta. Un botón siempre tiene que poder alcanzarse. */
+  overflow-x: auto;
+  height: 100dvh;
+}
+
+/* Portátil a zoom 100 %: el salto de 900px llegaba tarde y las cabeceras
+   quedaban apretadas contra el borde. */
+@media (max-width: 1280px) {
+  .main-content { padding: 1.5rem; }
 }
 
 @media (max-width: 900px) {
@@ -188,6 +201,15 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   box-shadow: var(--shadow-panel);
+}
+
+/* Los paneles también respiran menos cuando sobra poco ancho. */
+@media (max-width: 1280px) {
+  .glass-panel { padding: 1.25rem; }
+}
+
+@media (max-width: 620px) {
+  .glass-panel { padding: 1rem; border-radius: var(--radius-md); }
 }
 
 /* Utilidades de la estética Cinematic Precision */

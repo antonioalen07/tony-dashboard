@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CalendarDays, ChevronLeft, ChevronRight, Shuffle, Zap, Loader2, Clock, Text,
+  CalendarDays, ChevronLeft, ChevronRight, Shuffle, Zap, Loader2, Clock, Text, X,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
@@ -65,6 +65,8 @@ export default function CalendarioPage() {
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [captionId, setCaptionId] = useState<string | null>(null);
+  const [captionDraft, setCaptionDraft] = useState('');
+  const [savingCaption, setSavingCaption] = useState(false);
   // Cancela el guardado en blur cuando el cierre del input viene de Escape.
   const skipBlurSave = useRef(false);
 
@@ -101,6 +103,11 @@ export default function CalendarioPage() {
     return map;
   }, [items]);
 
+  const captionEditing = useMemo(
+    () => items.find((it) => it.id === captionId) ?? null,
+    [items, captionId],
+  );
+
   const unscheduled = useMemo(
     () => items.filter((it) => !it.scheduled_at && it.status === 'pending'),
     [items],
@@ -133,14 +140,22 @@ export default function CalendarioPage() {
     toast('Fecha actualizada', 'success');
   };
 
+  const openCaption = (it: PublishQueueItem) => {
+    setCaptionDraft(it.caption ?? '');
+    setCaptionId(it.id);
+  };
+
   const saveCaption = async (id: string, value: string) => {
     const caption = value.trim() || null;
+    setSavingCaption(true);
     const { error } = await supabase.from('publish_queue').update({ caption }).eq('id', id);
+    setSavingCaption(false);
     if (error) {
-      // La columna es nueva: si la base no la tiene, decimos qué falta.
+      // La columna llegó en una migración posterior a la de Studio; si la base
+      // quedó atrasada, PostgREST responde "Could not find the 'caption' column".
       toast(
         /caption/i.test(error.message || '')
-          ? 'Falta la columna `caption`: volvé a correr supabase_migration_studio.sql'
+          ? 'Falta la columna `caption`: corré supabase_migration_ai_config.sql en Supabase'
           : 'No se pudo guardar el caption',
         'error',
       );
@@ -198,25 +213,7 @@ export default function CalendarioPage() {
       <span className={styles.chipDot} aria-hidden="true" />
       <span className={styles.chipTime}>{it.scheduled_at ? timeOf(it.scheduled_at) : '—'}</span>
       <span className={styles.chipKind}>{it.kind}</span>
-      {captionId === it.id ? (
-        <textarea
-          className={styles.captionBox}
-          defaultValue={it.caption ?? ''}
-          rows={4}
-          maxLength={2200}
-          autoFocus
-          placeholder="Caption del post…"
-          onBlur={(e) => {
-            if (skipBlurSave.current) { skipBlurSave.current = false; setCaptionId(null); return; }
-            saveCaption(it.id, e.target.value);
-          }}
-          onKeyDown={(e) => {
-            // Enter con Ctrl/Cmd guarda; Enter solo hace salto de línea.
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.blur();
-            if (e.key === 'Escape') { skipBlurSave.current = true; e.currentTarget.blur(); }
-          }}
-        />
-      ) : editingId === it.id ? (
+      {editingId === it.id ? (
         <input
           className={styles.chipInput}
           type="datetime-local"
@@ -241,7 +238,7 @@ export default function CalendarioPage() {
             className={styles.chipBtn}
             data-on={!!it.caption}
             title={it.caption ? `Caption: ${it.caption.slice(0, 80)}` : 'Sin caption — clic para escribirlo'}
-            onClick={() => setCaptionId(it.id)}
+            onClick={() => openCaption(it)}
           >
             <Text size={12} />
           </button>
@@ -318,7 +315,8 @@ export default function CalendarioPage() {
           {WEEKDAYS.map((w) => <div key={w} className={styles.weekName}>{w}</div>)}
         </div>
 
-        <div className={styles.grid}>
+        <div className={styles.gridScroll}>
+          <div className={styles.grid}>
           {cells.map((day, i) => {
             if (day === null) return <div key={`e${i}`} className={`${styles.cell} ${styles.empty0}`} />;
             const k = dayKey(view.y, view.m, day);
@@ -332,7 +330,70 @@ export default function CalendarioPage() {
             );
           })}
         </div>
+        </div>
       </section>
+
+      {/* ---- Editor de caption ----
+          Fuera de la grilla a propósito: dentro de la celda el textarea quedaba
+          recortado por el overflow y no había lugar para escribir 2.200 chars. */}
+      {captionEditing && (
+        <div className={styles.captionOverlay} onClick={() => setCaptionId(null)}>
+          <div
+            className={styles.captionDialog}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Caption de la publicación"
+          >
+            <div className={styles.captionHead}>
+              <h3 className={styles.captionTitle}>Caption del post</h3>
+              <button
+                className={styles.captionClose}
+                onClick={() => setCaptionId(null)}
+                aria-label="Cerrar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className={styles.captionMeta}>
+              {captionEditing.kind} ·{' '}
+              {captionEditing.scheduled_at
+                ? new Date(captionEditing.scheduled_at).toLocaleString('es')
+                : 'sin fecha'}
+            </p>
+            <textarea
+              className={styles.captionArea}
+              value={captionDraft}
+              onChange={(e) => setCaptionDraft(e.target.value)}
+              rows={9}
+              maxLength={2200}
+              autoFocus
+              placeholder="Escribí el texto que acompaña la publicación…"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setCaptionId(null);
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  saveCaption(captionEditing.id, captionDraft);
+                }
+              }}
+            />
+            <div className={styles.captionFoot}>
+              <span className={styles.captionCount}>{captionDraft.length}/2200</span>
+              <div className={styles.captionActions}>
+                <button className={styles.ghostBtn} onClick={() => setCaptionId(null)}>
+                  Cancelar
+                </button>
+                <button
+                  className={styles.primaryBtn}
+                  onClick={() => saveCaption(captionEditing.id, captionDraft)}
+                  disabled={savingCaption}
+                >
+                  {savingCaption ? <Loader2 size={15} className={styles.spin} /> : null}
+                  {savingCaption ? 'Guardando…' : 'Guardar caption'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -204,3 +204,10 @@
   color: var(--accent-negative);
   border-color: color-mix(in srgb, var(--accent-negative) 35%, var(--card-border));
 }
+
+/* Entre 900px y 1280px cada píxel de ancho cuenta para el contenido. */
+@media (min-width: 901px) and (max-width: 1280px) {
+  .sidebar { width: 208px; }
+  .header { padding: 0.85rem 1rem; margin-bottom: 1.25rem; }
+  .navItem { padding-left: 1rem; padding-right: 1rem; }
+}

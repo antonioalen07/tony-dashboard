@@ -294,3 +294,25 @@
 @keyframes spin {
   100% { transform: rotate(360deg); }
 }
+
+/* Dato secundario dentro de una caja de stat (ej. tasa de comentarios). */
+.statSub {
+  font-size: 0.65rem;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* En pantallas chicas 3 columnas aprietan el texto hasta romperlo. */
+@media (max-width: 420px) {
+  .statsGrid { grid-template-columns: 1fr 1fr; }
+}
+
+/* .section se usaba en el TSX pero nunca se definió: cada bloque quedaba
+   apoyado solo en el gap del contenedor, sin estructura interna propia. */
+.section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}

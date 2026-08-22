@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Sparkles, Loader2, Plus, Trash2, Copy, Check, MessageSquare } from 'lucide-react';
+import { Send, Sparkles, Loader2, Plus, Trash2, Copy, Check, MessageSquare, SlidersHorizontal } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import { loadWork, saveWork } from '@/lib/workSession';
+import PromptSettingsPanel from '@/components/PromptSettingsPanel';
 import styles from './chat.module.css';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
@@ -47,6 +48,7 @@ export default function ChatPage() {
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const [sessionsEnabled, setSessionsEnabled] = useState(true);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -178,10 +180,17 @@ export default function ChatPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <div>
+        <div className={styles.headTexts}>
           <h1 className={styles.title}>AI Chat</h1>
           <p className={styles.subtitle}>Tu estratega personal: conoce tu kit de marca, tus reels y tus números.</p>
         </div>
+        <button
+          className={styles.trainBtn}
+          onClick={() => setSettingsOpen(true)}
+          title="Editar los pilares, ángulos y reglas con los que piensa la IA"
+        >
+          <SlidersHorizontal size={15} /> Entrenamiento
+        </button>
       </header>
 
       <div className={styles.layout}>
@@ -281,6 +290,8 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {settingsOpen && <PromptSettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

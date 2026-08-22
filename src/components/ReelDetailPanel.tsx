@@ -8,9 +8,11 @@ interface ReelDetailPanelProps {
   reel: any;
   onClose: () => void;
   medianViews?: number;
+  /** Promedio de la cuenta de comentarios por cada 1.000 de alcance. */
+  avgCommentRate?: number;
 }
 
-export default function ReelDetailPanel({ reel: initialReel, onClose, medianViews = 0 }: ReelDetailPanelProps) {
+export default function ReelDetailPanel({ reel: initialReel, onClose, medianViews = 0, avgCommentRate = 0 }: ReelDetailPanelProps) {
   const { toast } = useToast();
   const [reel, setReel] = useState(initialReel);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -30,6 +32,15 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
 
   const vsMedian =
     medianViews > 0 && reel.views > 0 ? Math.round((reel.views / medianViews) * 10) / 10 : null;
+
+  // Tasa de conversación: comentarios por cada 1.000 de alcance. Normaliza el
+  // conteo crudo, que por definición premia siempre al reel que más vistas tuvo.
+  const commentBase = reel.reach || reel.views || 0;
+  const commentRate = commentBase > 0 ? ((reel.comments || 0) * 1000) / commentBase : null;
+  const vsAvgComments =
+    commentRate != null && avgCommentRate > 0
+      ? Math.round((commentRate / avgCommentRate) * 10) / 10
+      : null;
 
   const handleCopyTranscript = async () => {
     try {
@@ -125,7 +136,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
 
           <div className={styles.statsGrid}>
             <div className={styles.statBox}>
-              <span className={styles.statLabel}>VIEWS</span>
+              <span className={styles.statLabel}>VISTAS</span>
               <span className={styles.statValue}>{reel.views || 0}</span>
             </div>
             <div className={styles.statBox}>
@@ -133,8 +144,14 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
               <span className={styles.statValue}>{reel.likes || 0}</span>
             </div>
             <div className={styles.statBox}>
-              <span className={styles.statLabel}>COMMENTS</span>
+              <span className={styles.statLabel}>COMENTARIOS</span>
               <span className={styles.statValue}>{reel.comments || 0}</span>
+              {commentRate != null && (
+                <span className={styles.statSub}>
+                  {commentRate.toFixed(1)} por 1k de alcance
+                  {vsAvgComments != null ? ` · ${vsAvgComments}x tu promedio` : ''}
+                </span>
+              )}
             </div>
           </div>
 

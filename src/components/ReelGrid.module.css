@@ -96,3 +96,13 @@
   color: white;
   font-weight: 500;
 }
+
+/* La fila de stats pasa de 2 a 3 datos: que respire y no se corte. */
+.stats { gap: 8px; flex-wrap: wrap; }
+
+.comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
