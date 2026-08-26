@@ -1,26 +1,45 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Loader2, RotateCcw, Save, SlidersHorizontal } from 'lucide-react';
+import { X, Loader2, RotateCcw, Save, SlidersHorizontal, Eraser, Eye } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { BLOCK_DEFS, DEFAULT_BLOCKS, type BlockId, type Blocks } from '@/lib/promptConfig';
+import {
+  BLOCK_DEFS,
+  DEFAULT_BLOCKS,
+  type BlockId,
+  type Blocks,
+  type PromptTarget,
+} from '@/lib/promptConfig';
 import styles from './PromptSettingsPanel.module.css';
 
 interface PromptSettingsPanelProps {
   onClose: () => void;
 }
 
-const USED_IN_LABEL: Record<'chat' | 'analisis', string> = {
+const USED_IN_LABEL: Record<PromptTarget, string> = {
   chat: 'Chat',
   analisis: 'Análisis de reels',
+  adaptar: 'Adaptar virales',
 };
 
+type PreviewTab = PromptTarget;
+
+const PREVIEW_TABS: { id: PreviewTab; label: string }[] = [
+  { id: 'chat', label: 'Chat' },
+  { id: 'analisis', label: 'Análisis de reels' },
+  { id: 'adaptar', label: 'Adaptar virales' },
+];
+
 /**
- * Editor del entrenamiento de la IA. Cada bloque es una sección del prompt que
- * se puede reescribir; lo que no se toca sigue el default del código.
+ * Editor del entrenamiento de la IA. Cada bloque es una sección del prompt.
  *
- * Mismo patrón de panel deslizante que ReelDetailPanel para no introducir una
- * estructura de navegación nueva.
+ * Tres estados por bloque, y la diferencia importa:
+ *   - igual al default  → hereda mejoras del código
+ *   - editado           → gana sobre el default
+ *   - VACÍO             → apagado: no entra al prompt (no vuelve al default)
+ *
+ * El preview muestra el prompt final tal cual lo recibe el modelo. Si borraste
+ * algo del entrenamiento y seguís viéndolo en el chat, se comprueba acá.
  */
 export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProps) {
   const { toast } = useToast();
@@ -29,6 +48,10 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [tableMissing, setTableMissing] = useState(false);
+
+  const [previewTab, setPreviewTab] = useState<PreviewTab | null>(null);
+  const [preview, setPreview] = useState<Record<PreviewTab, string> | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -54,11 +77,26 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
   const update = (id: BlockId, value: string) => {
     setBlocks((prev) => ({ ...prev, [id]: value }));
     setDirty(true);
+    setPreview(null); // el preview guardado dejó de reflejar lo que hay en pantalla
   };
 
-  const resetBlock = (id: BlockId) => {
-    setBlocks((prev) => ({ ...prev, [id]: DEFAULT_BLOCKS[id] }));
-    setDirty(true);
+  const resetBlock = (id: BlockId) => update(id, DEFAULT_BLOCKS[id]);
+  const clearBlock = (id: BlockId) => update(id, '');
+
+  /** Trae el prompt final ya compuesto en el servidor (post-guardado). */
+  const loadPreview = async (tab: PreviewTab) => {
+    setPreviewTab(tab);
+    if (preview) return;
+    setPreviewLoading(true);
+    try {
+      const res = await fetch('/api/ai-settings?preview=1');
+      const data = await res.json();
+      if (data.preview) setPreview(data.preview);
+      else toast('No se pudo armar el preview', 'error');
+    } catch {
+      toast('Error de red al cargar el preview', 'error');
+    }
+    setPreviewLoading(false);
   };
 
   const save = async () => {
@@ -76,6 +114,7 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
         if (data.blocks) setBlocks(data.blocks);
         setDirty(false);
         setTableMissing(false);
+        setPreview(null);
         toast('Entrenamiento guardado — la IA ya lo usa', 'success');
       }
     } catch {
@@ -93,8 +132,9 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
               <SlidersHorizontal size={16} className={styles.titleIcon} /> Entrenamiento de la IA
             </h2>
             <p className={styles.panelSub}>
-              Estos bloques son el prompt con el que trabaja tu estratega. Editalos para afinar cómo
-              piensa. Las transcripciones y los números de tus reels se siguen leyendo solos.
+              Estos bloques SON el prompt completo con el que trabaja tu estratega: no hay texto
+              oculto fuera de acá. Un bloque vacío no se le manda a la IA. Las transcripciones y los
+              números de tus reels se siguen leyendo solos.
             </p>
           </div>
           <button className={styles.closeBtn} onClick={onClose} aria-label="Cerrar">
@@ -109,50 +149,107 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
           </div>
         )}
 
-        <div className={styles.content}>
-          {loading ? (
-            <div className={styles.loading}>
-              <Loader2 size={16} className={styles.spin} /> Cargando entrenamiento…
-            </div>
-          ) : (
-            BLOCK_DEFS.map((def) => {
-              const isDefault = blocks[def.id].trim() === def.fallback.trim();
-              return (
-                <section key={def.id} className={styles.block}>
-                  <div className={styles.blockHead}>
-                    <div className={styles.blockLabelWrap}>
-                      <h3 className={styles.blockLabel}>
-                        {def.label}
-                        {!isDefault && <span className={styles.editedDot} title="Personalizado" />}
-                      </h3>
-                      <div className={styles.tags}>
-                        {def.usedIn.map((u) => (
-                          <span key={u} className={styles.tag}>{USED_IN_LABEL[u]}</span>
-                        ))}
+        <div className={styles.previewBar}>
+          <div className={styles.previewTabs}>
+            <button
+              className={`${styles.previewTab} ${previewTab === null ? styles.previewTabActive : ''}`}
+              onClick={() => setPreviewTab(null)}
+            >
+              Bloques
+            </button>
+            {PREVIEW_TABS.map((t) => (
+              <button
+                key={t.id}
+                className={`${styles.previewTab} ${previewTab === t.id ? styles.previewTabActive : ''}`}
+                onClick={() => loadPreview(t.id)}
+              >
+                <Eye size={11} /> {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {previewTab !== null ? (
+          <div className={styles.content}>
+            <p className={styles.previewNote}>
+              Esto es <strong>textualmente</strong> lo que recibe el modelo, con lo último que
+              guardaste. Si borraste algo del entrenamiento y todavía aparece acá, está entrando por
+              otro bloque: buscalo con Ctrl+F y vacialo.
+              {dirty && ' Ojo: tenés cambios sin guardar que todavía no se ven en este preview.'}
+            </p>
+            {previewLoading ? (
+              <div className={styles.loading}>
+                <Loader2 size={16} className={styles.spin} /> Armando el prompt…
+              </div>
+            ) : (
+              <pre className={styles.previewPre}>{preview?.[previewTab] ?? ''}</pre>
+            )}
+          </div>
+        ) : (
+          <div className={styles.content}>
+            {loading ? (
+              <div className={styles.loading}>
+                <Loader2 size={16} className={styles.spin} /> Cargando entrenamiento…
+              </div>
+            ) : (
+              BLOCK_DEFS.map((def) => {
+                const value = blocks[def.id];
+                const isDefault = value.trim() === def.fallback.trim();
+                const isOff = !value.trim();
+                return (
+                  <section
+                    key={def.id}
+                    className={`${styles.block} ${isOff ? styles.blockOff : ''}`}
+                  >
+                    <div className={styles.blockHead}>
+                      <div className={styles.blockLabelWrap}>
+                        <h3 className={styles.blockLabel}>
+                          {def.label}
+                          {!isDefault && !isOff && (
+                            <span className={styles.editedDot} title="Personalizado" />
+                          )}
+                          {isOff && <span className={styles.offTag}>apagado</span>}
+                        </h3>
+                        <div className={styles.tags}>
+                          {def.usedIn.map((u) => (
+                            <span key={u} className={styles.tag}>{USED_IN_LABEL[u]}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={styles.blockActions}>
+                        <button
+                          className={styles.resetBtn}
+                          onClick={() => clearBlock(def.id)}
+                          disabled={isOff}
+                          title="Sacar este bloque del prompt (no vuelve al texto original)"
+                        >
+                          <Eraser size={12} /> Vaciar
+                        </button>
+                        <button
+                          className={styles.resetBtn}
+                          onClick={() => resetBlock(def.id)}
+                          disabled={isDefault}
+                          title="Volver al texto original"
+                        >
+                          <RotateCcw size={12} /> Original
+                        </button>
                       </div>
                     </div>
-                    <button
-                      className={styles.resetBtn}
-                      onClick={() => resetBlock(def.id)}
-                      disabled={isDefault}
-                      title="Volver al texto original"
-                    >
-                      <RotateCcw size={12} /> Original
-                    </button>
-                  </div>
-                  <p className={styles.blockHint}>{def.hint}</p>
-                  <textarea
-                    className={styles.blockInput}
-                    value={blocks[def.id]}
-                    onChange={(e) => update(def.id, e.target.value)}
-                    rows={Math.min(16, Math.max(4, blocks[def.id].split('\n').length + 1))}
-                    spellCheck={false}
-                  />
-                </section>
-              );
-            })
-          )}
-        </div>
+                    <p className={styles.blockHint}>{def.hint}</p>
+                    <textarea
+                      className={styles.blockInput}
+                      value={value}
+                      onChange={(e) => update(def.id, e.target.value)}
+                      placeholder="Vacío = este bloque no se le manda a la IA."
+                      rows={Math.min(16, Math.max(4, value.split('\n').length + 1))}
+                      spellCheck={false}
+                    />
+                  </section>
+                );
+              })
+            )}
+          </div>
+        )}
 
         <div className={styles.footer}>
           <span className={styles.footerHint}>

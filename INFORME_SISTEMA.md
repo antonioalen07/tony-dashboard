@@ -99,6 +99,13 @@ Tablas del Studio (las crea `supabase_migration_studio.sql`, idempotente):
 | `publish_queue` | Cola de publicación (calendario → la levanta el publicador) |
 | `google_tokens` | Tokens de Google Drive (fila única) |
 
+Tablas posteriores (`supabase_migration_ai_config.sql`, idempotente):
+
+| Tabla / columna | Para qué |
+| --- | --- |
+| `publish_queue.caption` | Texto del post. Faltaba en bases creadas antes de esa columna; sin ella el caption no se puede guardar. |
+| `ai_settings` | Entrenamiento editable de la IA. Fila única `id=default`, `blocks` JSONB. Clave ausente = usa el default de `src/lib/promptConfig.ts`; string con texto = lo pisa; string vacío = bloque **apagado**, no entra al prompt. Los tres prompts (chat, análisis, adaptación) se arman sólo con estos bloques. |
+
 **Storage:** bucket **`studio`** (público). Plan free: **50 MB por archivo** (tope
 duro) y **500 MB** por bucket. Los uploads grandes desde la PC se **comprimen en el
 navegador** (ffmpeg.wasm) antes de subir. Los reels de Instagram son chicos y entran.

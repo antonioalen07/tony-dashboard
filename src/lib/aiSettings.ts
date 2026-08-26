@@ -40,6 +40,11 @@ export async function loadBlocks(): Promise<LoadedSettings> {
  * Guarda solo lo que difiere del default: así, si mañana cambia un default en
  * el código, los bloques que el usuario nunca tocó heredan la mejora en vez de
  * quedar congelados en una copia vieja.
+ *
+ * OJO con el bloque VACÍO: se persiste como string vacío, a propósito. Es la
+ * forma de decir "apagué este bloque". Si no lo guardáramos, al leer volvería a
+ * caer al default — que es exactamente por lo que borrar un bloque desde la app
+ * reinstalaba el texto original en vez de sacarlo del prompt.
  */
 export async function saveBlocks(incoming: Partial<Record<BlockId, string>>): Promise<void> {
   const blocks: Partial<Record<BlockId, string>> = {};
@@ -47,7 +52,8 @@ export async function saveBlocks(incoming: Partial<Record<BlockId, string>>): Pr
     const value = incoming[def.id];
     if (typeof value !== 'string') continue;
     const trimmed = value.trim();
-    if (trimmed && trimmed !== def.fallback.trim()) blocks[def.id] = trimmed;
+    if (trimmed === def.fallback.trim()) continue; // igual al default: que lo herede
+    blocks[def.id] = trimmed;
   }
 
   const { error } = await supabase
