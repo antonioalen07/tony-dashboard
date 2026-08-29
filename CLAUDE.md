@@ -37,6 +37,8 @@ Orden histórico:
 2. `supabase_migration_inspiration.sql` — referentes, bangers, sesiones de chat
 3. `supabase_migration_studio.sql` — tablas de Studio + bucket `studio`
 4. `supabase_migration_ai_config.sql` — `publish_queue.caption` + `ai_settings`
+5. `supabase_migration_produccion.sql` — `reels.bookings` / `reels.qualified_leads`
+   (carga manual) + `scripts` (tablero de guiones) e `ideas` (banco de ideas)
 
 Todas re-ejecutables. **La app tiene que degradar sin migración**, nunca romper:
 banner 428, aviso inline o fallback a defaults. Ese patrón ya está en Studio,

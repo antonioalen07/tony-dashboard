@@ -5,9 +5,14 @@ import styles from './MigrationBanner.module.css';
 
 type MigrationBannerProps = {
   onRetry?: () => void;
+  /** Archivo .sql que hay que pegar en el SQL Editor. Cada sección tiene el suyo. */
+  file?: string;
 };
 
-export default function MigrationBanner({ onRetry }: MigrationBannerProps) {
+export default function MigrationBanner({
+  onRetry,
+  file = 'supabase_migration_studio.sql',
+}: MigrationBannerProps) {
   return (
     <div className={`glass-panel ${styles.banner}`} role="status">
       <div className={styles.icon}>
@@ -18,7 +23,7 @@ export default function MigrationBanner({ onRetry }: MigrationBannerProps) {
         <h3 className={styles.title}>Falta correr la migración</h3>
         <p className={styles.text}>
           Para usar esta sección necesitás ejecutar la migración{' '}
-          <code className={styles.code}>supabase_migration_studio.sql</code> en el{' '}
+          <code className={styles.code}>{file}</code> en el{' '}
           <strong>SQL Editor</strong> de Supabase. Una vez creadas las tablas,
           volvé a esta pantalla.
         </p>
