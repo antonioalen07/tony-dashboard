@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
-import { RefreshCw, MessageCircle } from 'lucide-react';
+import { RefreshCw, MessageCircle, CalendarCheck } from 'lucide-react';
 import ReelGrid from '@/components/ReelGrid';
 import ReelDetailPanel from '@/components/ReelDetailPanel';
 import DateRangeFilter from '@/components/DateRangeFilter';
@@ -12,13 +12,14 @@ import { ALL_TIME, filterByRange, sanitizeRange, type DateRange } from '@/lib/da
 import { loadWork, saveWork } from '@/lib/workSession';
 import styles from './page.module.css';
 
-type SortMode = 'recent' | 'views' | 'er' | 'comments';
+type SortMode = 'recent' | 'views' | 'er' | 'comments' | 'bookings';
 
 const SORTS: { key: SortMode; label: string }[] = [
   { key: 'recent', label: 'Recientes' },
   { key: 'views', label: 'Más vistos' },
   { key: 'er', label: 'Mejor ER' },
   { key: 'comments', label: 'Más comentados' },
+  { key: 'bookings', label: 'Más agendas' },
 ];
 
 const fmtNum = (n: number) => {
@@ -69,6 +70,7 @@ export default function InstagramIntelligence() {
     if (sort === 'views') copy.sort((a, b) => (b.views || 0) - (a.views || 0));
     else if (sort === 'er') copy.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
     else if (sort === 'comments') copy.sort((a, b) => (b.comments || 0) - (a.comments || 0));
+    else if (sort === 'bookings') copy.sort((a, b) => (b.bookings || 0) - (a.bookings || 0));
     return copy;
   }, [shown, sort]);
 
@@ -93,6 +95,41 @@ export default function InstagramIntelligence() {
       rate: reach > 0 ? (total * 1000) / reach : 0,
       withComments,
       top: top && (top.comments || 0) > 0 ? top : null,
+    };
+  }, [shown]);
+
+  /**
+   * Resultados de negocio: lo único que no viene de Meta. Se carga a mano por
+   * reel y responde la pregunta que las vistas no responden — de todas estas
+   * conversaciones, ¿cuántas terminaron en una reunión?
+   *
+   * Un reel "medido" es uno donde ya cargaste el dato (aunque sea 0). Los que
+   * están sin medir no se cuentan como cero: ensuciarían todas las tasas.
+   */
+  const bizStats = useMemo(() => {
+    const measured = shown.filter(
+      (r) => typeof r.bookings === 'number' || typeof r.qualified_leads === 'number'
+    );
+    const bookings = shown.reduce((sum, r) => sum + (r.bookings || 0), 0);
+    const leads = shown.reduce((sum, r) => sum + (r.qualified_leads || 0), 0);
+    // Las tasas se calculan SOLO sobre los reels medidos: comparar agendas
+    // cargadas contra los comentarios de reels sin medir daría un número bajo
+    // que parece una conversión mala y no lo es.
+    const comments = measured.reduce((sum, r) => sum + (r.comments || 0), 0);
+    const reach = measured.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
+    const top = shown.reduce(
+      (best, r) => ((r.bookings || 0) > (best?.bookings || 0) ? r : best),
+      null as any,
+    );
+    return {
+      bookings,
+      leads,
+      measured: measured.length,
+      withBookings: shown.filter((r) => (r.bookings || 0) > 0).length,
+      perThousand: reach > 0 ? (bookings * 1000) / reach : null,
+      commentToBooking: comments > 0 ? (bookings * 100) / comments : null,
+      leadToBooking: leads > 0 ? (bookings * 100) / leads : null,
+      top: top && (top.bookings || 0) > 0 ? top : null,
     };
   }, [shown]);
 
@@ -226,6 +263,75 @@ export default function InstagramIntelligence() {
         )}
       </section>
 
+      <section className={`glass-panel ${styles.bizPanel}`}>
+        <div className={styles.commentsHead}>
+          <h2 className={styles.commentsTitle}>
+            <CalendarCheck size={15} className={styles.commentsIcon} /> Resultados de negocio
+          </h2>
+          <p className={styles.commentsSub}>
+            Agendas y leads calificados que cargás a mano en cada reel.{' '}
+            {bizStats.measured} de {shown.length} reel{shown.length === 1 ? '' : 's'} del rango ya
+            están medidos.
+          </p>
+        </div>
+
+        <div className={styles.bizGrid}>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>{fmtNum(bizStats.bookings)}</span>
+            <span className={styles.bizLabel}>Agendas totales</span>
+          </div>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>{fmtNum(bizStats.leads)}</span>
+            <span className={styles.bizLabel}>Leads calificados</span>
+          </div>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>
+              {bizStats.commentToBooking != null ? `${bizStats.commentToBooking.toFixed(0)}%` : '—'}
+            </span>
+            <span className={styles.bizLabel}>De conversación a agenda</span>
+          </div>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>
+              {bizStats.leadToBooking != null ? `${bizStats.leadToBooking.toFixed(0)}%` : '—'}
+            </span>
+            <span className={styles.bizLabel}>De lead calificado a agenda</span>
+          </div>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>
+              {bizStats.perThousand != null ? bizStats.perThousand.toFixed(1) : '—'}
+            </span>
+            <span className={styles.bizLabel}>Agendas por 1k de alcance</span>
+          </div>
+          <div className={styles.bizStat}>
+            <span className={styles.bizValue}>
+              {bizStats.withBookings}
+              <span className={styles.commentValueSoft}>/{shown.length}</span>
+            </span>
+            <span className={styles.bizLabel}>Reels que trajeron agendas</span>
+          </div>
+        </div>
+
+        {bizStats.top ? (
+          <button
+            className={styles.topComment}
+            onClick={() => setSelectedReel(bizStats.top)}
+            title="Abrir el detalle de este reel"
+          >
+            <span className={styles.topCommentLabel}>El que más agendó</span>
+            <span className={styles.topCommentTitle}>
+              {(bizStats.top.title || 'Sin título').split('\n')[0]}
+            </span>
+            <span className={styles.topCommentCount}>{bizStats.top.bookings} agendas</span>
+          </button>
+        ) : (
+          <p className={styles.bizNote}>
+            Todavía no cargaste agendas en este rango. Abrí un reel y completá{' '}
+            <strong>Resultados de negocio</strong>: con eso las tasas de acá arriba empiezan a decir
+            algo.
+          </p>
+        )}
+      </section>
+
       <div className={styles.filters}>
         <div className={styles.filterLeft}>
           <span className={styles.filterText}>Ordenar por</span>
@@ -259,6 +365,9 @@ export default function InstagramIntelligence() {
 
       {selectedReel && (
         <ReelDetailPanel
+          // El panel arranca sus campos de carga manual del reel que recibe:
+          // sin key, cambiar de reel sin cerrar dejaría los números del anterior.
+          key={selectedReel.id}
           reel={selectedReel}
           medianViews={medianViews}
           avgCommentRate={commentStats.rate}

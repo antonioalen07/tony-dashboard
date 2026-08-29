@@ -5,7 +5,9 @@ import MetricCard from '@/components/MetricCard';
 import ReachChart from '@/components/ReachChart';
 import AudienceChart from '@/components/AudienceChart';
 import TopContentList from '@/components/TopContentList';
-import { Users, Eye, Bookmark, TrendingUp, Film, MessageCircle } from 'lucide-react';
+import {
+  Users, Eye, Bookmark, TrendingUp, Film, MessageCircle, CalendarCheck, UserCheck,
+} from 'lucide-react';
 import DateRangeFilter from '@/components/DateRangeFilter';
 import { supabase } from '@/utils/supabase';
 import { ALL_TIME, filterByRange, isFiltered, sanitizeRange, type DateRange } from '@/lib/dateRange';
@@ -83,6 +85,10 @@ export default function Dashboard() {
   // vuelta, así que se miran aparte de likes/guardados.
   const totalComments = shown.reduce((sum, r) => sum + (r.comments || 0), 0);
   const totalReach = shown.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
+  // Resultados de negocio: se cargan a mano reel por reel (Instagram no los
+  // conoce). Son el final del embudo que empieza en Reach.
+  const totalBookings = shown.reduce((sum, r) => sum + (r.bookings || 0), 0);
+  const totalLeads = shown.reduce((sum, r) => sum + (r.qualified_leads || 0), 0);
 
   // Los objetivos son acumulados de por vida: no dependen del rango.
   const lifetimeViews = reels.reduce((sum, r) => sum + (r.views || 0), 0);
@@ -106,6 +112,7 @@ export default function Dashboard() {
   const savesDelta = filtering ? null : monthlyDelta(reels, (r) => r.saves || 0);
   const reelsDelta = filtering ? null : monthlyDelta(reels, () => 1);
   const commentsDelta = filtering ? null : monthlyDelta(reels, (r) => r.comments || 0);
+  const bookingsDelta = filtering ? null : monthlyDelta(reels, (r) => r.bookings || 0);
 
   const hour = new Date().getHours();
   const greeting = hour < 6 ? 'Buenas noches' : hour < 13 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
@@ -157,6 +164,19 @@ export default function Dashboard() {
           icon={<MessageCircle size={18} />}
           loading={loading}
           {...(commentsDelta ? { trend: commentsDelta.trend, trendValue: commentsDelta.label } : {})}
+        />
+        <MetricCard
+          title="Agendas"
+          value={formatNumber(totalBookings)}
+          icon={<CalendarCheck size={18} />}
+          loading={loading}
+          {...(bookingsDelta ? { trend: bookingsDelta.trend, trendValue: bookingsDelta.label } : {})}
+        />
+        <MetricCard
+          title="Leads Calificados"
+          value={formatNumber(totalLeads)}
+          icon={<UserCheck size={18} />}
+          loading={loading}
         />
         <MetricCard title="Engagement Rate" value={avgER} icon={<TrendingUp size={18} />} loading={loading} />
         <MetricCard

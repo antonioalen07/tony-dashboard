@@ -27,8 +27,8 @@
 
 .metricsGrid {
   display: grid;
-  /* 170px deja entrar las 6 tarjetas (con Conversaciones) en un portátil sin
-     que ninguna quede cortada. */
+  /* 170px deja entrar las tarjetas de a tres o cuatro por fila en un portátil
+     sin que ninguna quede cortada. Son ocho con Agendas y Leads. */
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 1rem;
 }

@@ -106,3 +106,17 @@
   gap: 4px;
   white-space: nowrap;
 }
+
+/* Agendas cargadas a mano: se destaca sobre el resto de la fila de stats. */
+.bookings {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(4px);
+  color: white;
+  font-weight: 600;
+}

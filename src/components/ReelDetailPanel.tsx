@@ -1,8 +1,22 @@
-import { useEffect, useState } from 'react';
-import { X, ExternalLink, Sparkles, FileText, Download, Copy, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  X, ExternalLink, Sparkles, FileText, Download, Copy, Check, AlertCircle, Loader2,
+  CalendarCheck, UserCheck,
+} from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
+import { PRODUCTION_MIGRATION, isMissingSchema } from '@/lib/scripts-types';
 import styles from './ReelDetailPanel.module.css';
+
+/** Campo de carga manual: vacío = "todavía no lo medí"; 0 = "medido, no trajo nada". */
+const parseCount = (raw: string): number | null => {
+  const value = raw.trim();
+  if (value === '') return null;
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+const asInput = (value: unknown): string => (value == null ? '' : String(value));
 
 interface ReelDetailPanelProps {
   reel: any;
@@ -19,11 +33,59 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Resultados de negocio: se cargan a mano, uno por uno, cuando se cierran las
+  // consultas que trajo el video. Meta no los conoce; solo vos.
+  const [bookings, setBookings] = useState(asInput(initialReel.bookings));
+  const [leads, setLeads] = useState(asInput(initialReel.qualified_leads));
+  const [bizState, setBizState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [bizMissing, setBizMissing] = useState(false);
+  // Lo tipeado y lo ya guardado, para poder vaciar el pendiente al cerrar.
+  const draft = useRef({ bookings: asInput(initialReel.bookings), leads: asInput(initialReel.qualified_leads) });
+  const saved = useRef({ bookings: asInput(initialReel.bookings), leads: asInput(initialReel.qualified_leads) });
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const saveBusiness = async () => {
+    const next = draft.current;
+    if (next.bookings === saved.current.bookings && next.leads === saved.current.leads) return;
+
+    const payload = {
+      bookings: parseCount(next.bookings),
+      qualified_leads: parseCount(next.leads),
+    };
+
+    setBizState('saving');
+    const { error } = await supabase.from('reels').update(payload).eq('id', reel.id);
+
+    if (error) {
+      setBizState('error');
+      if (isMissingSchema(error)) setBizMissing(true);
+      else toast('No se pudieron guardar los resultados', 'error');
+      return;
+    }
+
+    saved.current = { ...next };
+    setBizMissing(false);
+    setBizState('saved');
+    setReel((prev: any) => ({ ...prev, ...payload }));
+  };
+
+  // Cerrar con Escape no dispara el blur de los inputs: se guarda igual.
+  useEffect(() => {
+    return () => {
+      const next = draft.current;
+      if (next.bookings === saved.current.bookings && next.leads === saved.current.leads) return;
+      supabase
+        .from('reels')
+        .update({ bookings: parseCount(next.bookings), qualified_leads: parseCount(next.leads) })
+        .eq('id', initialReel.id)
+        .then(() => {});
+    };
+  }, [initialReel.id]);
 
   const refreshReel = async () => {
     const { data: updatedReel } = await supabase.from('reels').select('*').eq('id', reel.id).single();
@@ -41,6 +103,14 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
     commentRate != null && avgCommentRate > 0
       ? Math.round((commentRate / avgCommentRate) * 10) / 10
       : null;
+
+  // Lectura del dato cargado a mano: cuánto rinde el alcance y cuánta de la
+  // conversación terminó en una reunión.
+  const bookingsCount = parseCount(bookings);
+  const bookingRate =
+    bookingsCount != null && commentBase > 0 ? (bookingsCount * 1000) / commentBase : null;
+  const commentToBooking =
+    bookingsCount != null && (reel.comments || 0) > 0 ? (bookingsCount * 100) / reel.comments : null;
 
   const handleCopyTranscript = async () => {
     try {
@@ -153,6 +223,81 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
                 </span>
               )}
             </div>
+          </div>
+
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <CalendarCheck size={16} className="text-secondary" /> Resultados de negocio
+            </h3>
+            <p className={styles.bizHint}>
+              Carga manual: cuando termines de atender las consultas que trajo este video, anotá
+              cuántas agendas y cuántos leads calificados salieron de acá. Dejalo vacío mientras no
+              lo hayas medido.
+            </p>
+
+            <div className={styles.bizGrid}>
+              <label className={styles.bizField}>
+                <span className={styles.bizLabel}><CalendarCheck size={13} /> Agendas</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  className={styles.bizInput}
+                  value={bookings}
+                  placeholder="—"
+                  onChange={(e) => {
+                    setBookings(e.target.value);
+                    draft.current = { ...draft.current, bookings: e.target.value };
+                    setBizState('idle');
+                  }}
+                  onBlur={saveBusiness}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                />
+              </label>
+
+              <label className={styles.bizField}>
+                <span className={styles.bizLabel}><UserCheck size={13} /> Leads calificados</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  className={styles.bizInput}
+                  value={leads}
+                  placeholder="—"
+                  onChange={(e) => {
+                    setLeads(e.target.value);
+                    draft.current = { ...draft.current, leads: e.target.value };
+                    setBizState('idle');
+                  }}
+                  onBlur={saveBusiness}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                />
+              </label>
+            </div>
+
+            <div className={styles.bizFoot}>
+              <span className={styles.bizState} data-state={bizState}>
+                {bizState === 'saving' && <><Loader2 size={12} className={styles.spin} /> Guardando…</>}
+                {bizState === 'saved' && <><Check size={12} /> Guardado</>}
+                {bizState === 'error' && !bizMissing && 'No se pudo guardar'}
+                {bizState === 'idle' && 'Se guarda al salir del campo'}
+              </span>
+              {bookingsCount != null && bookingsCount > 0 && (
+                <span className={styles.bizDerived}>
+                  {bookingRate != null && `${bookingRate.toFixed(1)} agendas por 1k de alcance`}
+                  {commentToBooking != null && ` · ${commentToBooking.toFixed(0)}% de los comentarios`}
+                </span>
+              )}
+            </div>
+
+            {bizMissing && (
+              <p className={styles.bizMissing}>
+                Falta correr <code>{PRODUCTION_MIGRATION}</code> en el SQL Editor de Supabase para que
+                estas dos columnas existan. Hasta entonces no se guardan.
+              </p>
+            )}
           </div>
 
           <div className={styles.section}>

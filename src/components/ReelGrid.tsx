@@ -1,4 +1,4 @@
-import { FileText, Sparkles, MessageCircle } from 'lucide-react';
+import { FileText, Sparkles, MessageCircle, CalendarCheck } from 'lucide-react';
 import { coverSrc } from '@/lib/covers';
 import styles from './ReelGrid.module.css';
 
@@ -29,6 +29,8 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
       {reels.map((reel) => {
         const hasTranscript = Boolean(reel.transcript && String(reel.transcript).trim());
         const hasAnalysis = Boolean(reel.ai_analysis && reel.ai_analysis.length);
+        // Agendas cargadas a mano: el dato que dice si el video vendió algo.
+        const bookings = typeof reel.bookings === 'number' ? reel.bookings : null;
         return (
           <div key={reel.id} className={styles.card} onClick={() => onSelectReel(reel)}>
             <img
@@ -59,6 +61,18 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
                 <span className={styles.comments} title={`${reel.comments || 0} comentarios`}>
                   <MessageCircle size={11} /> {fmt(reel.comments || 0)}
                 </span>
+                {bookings != null && bookings > 0 && (
+                  <span
+                    className={styles.bookings}
+                    title={`${bookings} agenda${bookings === 1 ? '' : 's'}${
+                      typeof reel.qualified_leads === 'number'
+                        ? ` · ${reel.qualified_leads} leads calificados`
+                        : ''
+                    }`}
+                  >
+                    <CalendarCheck size={11} /> {bookings}
+                  </span>
+                )}
                 {reel.engagement_rate != null && (
                   <span className={styles.retention}>{reel.engagement_rate}% ER</span>
                 )}
