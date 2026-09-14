@@ -28,8 +28,21 @@ modelo con `LLM_MODEL`. En producción corre OpenAI.
 3. `supabase_migration_studio.sql` — Crevy Studio: `media_assets`, `story_projects`, `variant_jobs`, `video_variants`, `publish_queue`, `google_tokens` + bucket público `studio` (**correr en el SQL Editor de Supabase**). Las páginas de Studio muestran un banner 428 si falta.
 4. `supabase_migration_ai_config.sql` — `publish_queue.caption` (faltaba en bases creadas antes de esa columna: sin ella no se puede guardar el texto del post) y `ai_settings`, el entrenamiento editable de la IA. Sin correrla, los prompts caen a los defaults del código y el editor avisa que no puede guardar.
 5. `supabase_migration_produccion.sql` — `reels.bookings` y `reels.qualified_leads` (agendas y leads calificados por reel, carga manual) + las tablas `scripts` (tablero de guiones) e `ideas` (banco de ideas y referencias). Sin correrla, la sección Guiones muestra el banner 428 y los dos campos de negocio avisan que no pueden guardar.
+6. `supabase_migration_auth.sql` — `app_users`, `app_sessions`, `auth_events`: la autenticación propia (ver [Acceso y seguridad](#acceso-y-seguridad)). **Sin ella la app no deja entrar a nadie** (503 en el login), a propósito.
+7. `supabase_migration_lock_anon.sql` — cierra la base a la anon key: borra todas las políticas `anon`, activa RLS en todo `public` y revoca los GRANT. **Correrla al final**, con `SUPABASE_SERVICE_ROLE_KEY` ya cargada en Vercel y en el worker.
 
-Todas son re-ejecutables. La app degrada con aviso si falta alguna, nunca rompe.
+Todas son re-ejecutables. Salvo la 6, la app degrada con aviso si falta alguna, nunca rompe.
+
+## Acceso y seguridad
+
+- **Usuarios y sesiones en la base**, no en variables de entorno. Se administran desde `/admin` (sólo rol `admin`): alta/baja, rol, desactivar, resetear clave, ver sesiones activas y expulsar (una o todas), y la auditoría de accesos. Cada usuario cambia su clave en `/cuenta`.
+- **Arranque / emergencia**: `node scripts/auth-cli.mjs create-user <email> --name "Nombre" --role admin` crea el primer admin (pide la clave oculta). También `set-password`, `list`, `revoke-all` y `hash` (para insertar a mano en el SQL Editor).
+- **Sesiones revocables**: la cookie lleva un token aleatorio; la base guarda su hash. Vencen a los 30 días o tras 7 sin uso. Revocar una fila expulsa a ese dispositivo en la próxima petición.
+- **Bloqueo por intentos**: 5 logins fallidos en 15 min bloquean ese email (20 por IP) durante la ventana.
+- **El navegador no tiene ninguna key de Supabase.** Habla con la base a través de `/api/db`, un gateway same-origin que exige sesión y reenvía con la service-role key. Las subidas de video van directo a Storage con una URL firmada por `/api/storage/sign-upload`. Con `supabase_migration_lock_anon.sql` la anon key deja de servir para todo, así que expulsar a alguien de la app lo expulsa también de la base.
+- **Fail-closed**: si falta la migración o la service key, nadie entra. Antes, sin `AUTH_USERS` la puerta quedaba abierta.
+- Headers de seguridad (`X-Frame-Options: DENY`, HSTS, `nosniff`, etc.) en `next.config.ts`; chequeo de origen en toda petición que muta (`/api` POST/PUT/PATCH/DELETE).
+- Vars: `SUPABASE_SERVICE_ROLE_KEY` (obligatoria, sólo servidor) y `AUTH_SECRET` (recomendada; firma el header interno proxy → handlers). `AUTH_USERS` ya no se lee.
 
 ## Desarrollo
 
@@ -46,8 +59,10 @@ Ejecutá `supabase_schema.sql` en el SQL Editor de Supabase para crear la tabla 
 ## Deploy en Vercel
 
 1. Importá el repo en Vercel.
-2. Cargá las variables de entorno de `.env.example` en Project → Settings → Environment Variables.
+2. Cargá las variables de entorno de `.env.example` en Project → Settings → Environment Variables (`SUPABASE_SERVICE_ROLE_KEY` es obligatoria; `AUTH_USERS` se puede borrar).
 3. Deploy.
+
+Al pasar a la auth nueva, el orden importa: (1) `supabase_migration_auth.sql` + crear el primer admin con `scripts/auth-cli.mjs`, (2) `SUPABASE_SERVICE_ROLE_KEY` en Vercel y en el worker, (3) deploy — todas las sesiones anteriores quedan inválidas —, (4) `supabase_migration_lock_anon.sql`.
 
 > **Transcripción en Vercel**: `/api/transcribe` usa Apify (30-90s por reel). En el plan Hobby las funciones tienen límite de tiempo bajo y puede cortarse. Para transcribir en producción conviene plan Pro (hasta 300s) o correr el backfill localmente (`node backfill.mjs` con el dev server activo).
 

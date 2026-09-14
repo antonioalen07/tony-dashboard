@@ -30,7 +30,7 @@ exporte `name`, `intervalMs` y `run(ctx)`.
 | Variable                         | Requerida | Descripción                                    |
 | -------------------------------- | --------- | ---------------------------------------------- |
 | `NEXT_PUBLIC_SUPABASE_URL`       | sí        | URL del proyecto Supabase.                     |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`  | sí        | Anon key (RLS permite anon, igual que la app). |
+| `SUPABASE_SERVICE_ROLE_KEY`      | sí        | Service-role key (la base está cerrada a anon). Nunca al navegador. |
 | `WORKER_POLL_MS`                 | no        | Intervalo de polling en ms (default `20000`).  |
 
 En local basta con copiar el `.env.local` del proyecto principal:

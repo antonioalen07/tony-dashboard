@@ -211,3 +211,16 @@
   .header { padding: 0.85rem 1rem; margin-bottom: 1.25rem; }
   .navItem { padding-left: 1rem; padding-right: 1rem; }
 }
+
+/* Acceso a "Mi cuenta": mismo lenguaje que un navItem, pero pegado al pie. */
+.accountLink {
+  margin: 0 1rem 0.5rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+}
+
+.accountText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

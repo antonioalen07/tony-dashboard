@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { supabase } from '@/utils/supabase';
+import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { compressVideo } from '@/lib/compressVideo';
 import { STORY_FONTS } from '@/lib/storyRender';
 import { renderVariantTextPng, getVideoMeta, type VideoMeta } from '@/lib/variantText';
@@ -359,26 +360,25 @@ export default function VariantesPage() {
         }
       }
 
-      // Subida DIRECTA cliente → Supabase Storage: evita bufferear el archivo en el
-      // server de Next (que colgaba con videos grandes) y es más confiable.
+      // Subida DIRECTA cliente → Supabase Storage (con URL firmada por el server):
+      // evita bufferear el archivo en Next/Vercel, que corta con videos grandes.
       const path = `uploads/${Date.now()}-${sanitize(file.name)}`;
-      const { error: upErr } = await supabase.storage
-        .from('studio')
-        .upload(path, file, { contentType: file.type || 'video/mp4', upsert: false });
-      if (upErr) {
-        const sizeIssue = /exceed|maximum allowed size|payload too large|413/i.test(upErr.message);
+      try {
+        await uploadStudioObject(path, file, { contentType: file.type || 'video/mp4', upsert: false });
+      } catch (e) {
+        const msg = (e as Error).message || '';
+        const sizeIssue = /exceed|maximum allowed size|payload too large|413/i.test(msg);
         toast(
           sizeIssue
             ? 'Aun comprimido el video supera el límite de Storage (50MB en plan free). Probá uno más corto o pegá una URL pública.'
-            : `Error al subir: ${upErr.message}`,
+            : `Error al subir: ${msg}`,
           'error',
         );
         return;
       }
-      const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
       const asset = await insertAsset({
         kind: 'video', filename: file.name, storage_path: path,
-        public_url: pub.publicUrl, source: 'upload',
+        public_url: publicStudioUrl(path), source: 'upload',
       });
       if (asset) {
         setSelectedAsset(asset);
@@ -475,12 +475,12 @@ export default function VariantesPage() {
         text: t.text, position: t.position, x, y, style: textStyle, width, height,
       });
       const path = `variant-text/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.png`;
-      const { error } = await supabase.storage
-        .from('studio')
-        .upload(path, blob, { contentType: 'image/png', upsert: true });
-      if (error) throw new Error(`No se pudo subir el texto de la variante ${i + 1}: ${error.message}`);
-      const { data: pub } = supabase.storage.from('studio').getPublicUrl(path);
-      out.push({ ...t, startSec, endSec, overlayUrl: pub.publicUrl });
+      try {
+        await uploadStudioObject(path, blob, { contentType: 'image/png', upsert: true });
+      } catch (e) {
+        throw new Error(`No se pudo subir el texto de la variante ${i + 1}: ${(e as Error).message}`);
+      }
+      out.push({ ...t, startSec, endSec, overlayUrl: publicStudioUrl(path) });
     }
     return out;
   }, [texts, numVariants, textStyle, selectedAsset, videoMeta]);

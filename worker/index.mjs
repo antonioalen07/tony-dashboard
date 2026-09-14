@@ -26,18 +26,26 @@ function log(...args) {
 
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+// La base está cerrada a la anon key (supabase_migration_lock_anon.sql): el
+// worker necesita la service-role key. La anon queda sólo como fallback para
+// instalaciones viejas que todavía no corrieron esa migración.
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error(
     'Faltan credenciales de Supabase. Definí NEXT_PUBLIC_SUPABASE_URL y ' +
-      'NEXT_PUBLIC_SUPABASE_ANON_KEY (por ej. copiando .env.local del proyecto).',
+      'SUPABASE_SERVICE_ROLE_KEY (por ej. copiando .env.local del proyecto).',
   );
   process.exit(1);
 }
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn('Sin SUPABASE_SERVICE_ROLE_KEY: usando la anon key. Deja de funcionar al cerrar la base a anon.');
+}
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
 });
 

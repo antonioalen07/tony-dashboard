@@ -16,15 +16,33 @@ import {
   Menu,
   X,
   LogOut,
+  ShieldCheck,
+  UserRound,
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import Logo from './Logo';
 import styles from './Sidebar.module.css';
 
+interface Me {
+  email: string;
+  name: string;
+  role: 'admin' | 'member';
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+
+  // Quién está logueado: decide si se muestra la entrada Admin.
+  useEffect(() => {
+    if (pathname === '/login') return;
+    fetch('/api/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setMe(data ? { email: data.email, name: data.name, role: data.role } : null))
+      .catch(() => setMe(null));
+  }, [pathname]);
 
   const logout = async () => {
     await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -57,6 +75,7 @@ export default function Sidebar() {
     { label: 'Historias', icon: <ImagePlay size={18} />, href: '/historias' },
     { label: 'Variantes', icon: <Clapperboard size={18} />, href: '/variantes' },
     { label: 'Calendario', icon: <CalendarDays size={18} />, href: '/calendario' },
+    ...(me?.role === 'admin' ? [{ label: 'Admin', icon: <ShieldCheck size={18} />, href: '/admin' }] : []),
   ];
 
   return (
@@ -108,6 +127,14 @@ export default function Sidebar() {
           <span className={styles.footerLabel}>Tema</span>
           <ThemeToggle />
         </div>
+        <Link
+          href="/cuenta"
+          className={`${styles.navItem} ${styles.accountLink} ${pathname.startsWith('/cuenta') ? styles.active : ''}`}
+          title={me?.email || 'Mi cuenta'}
+        >
+          <UserRound size={16} />
+          <span className={styles.accountText}>{me?.name || me?.email || 'Mi cuenta'}</span>
+        </Link>
         <button className={styles.logoutBtn} onClick={logout}>
           <LogOut size={16} /> Cerrar sesión
         </button>
