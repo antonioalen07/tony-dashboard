@@ -413,3 +413,133 @@
 }
 
 .ghostBtn:hover { background: var(--accent-soft); color: var(--accent-primary); }
+
+/* ---- Cancelar publicaciones programadas (selección múltiple) ---- */
+
+/* Reemplaza al punto de status en los chips cancelables: mismo hueco, 0 salto de layout. */
+.chipCheck {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.chip[data-selected] {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+}
+
+.chipBtn[data-danger]:hover {
+  color: var(--accent-negative);
+  background: color-mix(in srgb, var(--accent-negative) 15%, transparent);
+}
+
+.selectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+}
+
+.selectionCount {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.selectionActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.dangerBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-negative);
+  border: 1px solid var(--accent-negative);
+  color: var(--on-accent);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+}
+
+.dangerBtn:hover:not(:disabled) { filter: brightness(1.1); }
+.dangerBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.confirmDialog {
+  width: 100%;
+  max-width: 460px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.warnIcon {
+  color: var(--accent-negative);
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
+.confirmText {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Lista explícita de qué se va a cancelar: con varias a la misma hora, el
+   contador solo no alcanza para estar seguro de lo que se borra. */
+.confirmList {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  list-style: none;
+  max-height: 190px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.confirmList strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.confirmCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.confirmCheck input {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--accent-negative);
+  cursor: pointer;
+}
+
+.confirmCheck em {
+  color: var(--text-tertiary);
+  font-style: normal;
+}

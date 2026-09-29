@@ -113,3 +113,14 @@ export async function deleteFromStudio(storage_path: string): Promise<void> {
   const { error } = await supabase.storage.from(STUDIO_BUCKET).remove([storage_path]);
   if (error) throw error;
 }
+
+/**
+ * Borra varios objetos en UNA llamada. Para limpiezas en lote (cancelar varias
+ * publicaciones juntas): un `remove` por archivo serían N roundtrips por el
+ * gateway, y si falla a mitad deja el lote borrado por la mitad.
+ */
+export async function deleteManyFromStudio(storage_paths: string[]): Promise<void> {
+  if (storage_paths.length === 0) return;
+  const { error } = await supabase.storage.from(STUDIO_BUCKET).remove(storage_paths);
+  if (error) throw error;
+}
