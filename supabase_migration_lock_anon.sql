@@ -1,5 +1,5 @@
 -- ============================================================================
--- Dashboard Content — Migración: CERRAR la base a la anon key
+-- BAKO — Migración: CERRAR la base a la anon key
 --
 -- Hasta ahora todas las tablas tenían políticas `TO anon USING (true)` y la
 -- anon key viajaba al navegador. Eso significa que cualquiera que haya entrado

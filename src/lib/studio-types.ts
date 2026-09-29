@@ -1,5 +1,5 @@
 /**
- * Contrato de datos compartido de Crevy Studio (Historias + Variantes + Calendario).
+ * Contrato de datos compartido de BAKO Studio (Historias + Variantes + Calendario).
  *
  * Espejo de las tablas creadas por `supabase_migration_studio.sql`.
  * TODAS las unidades del feature deben importar desde acá — no redefinir shapes.

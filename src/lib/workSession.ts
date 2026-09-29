@@ -5,7 +5,7 @@
  * de Inspiración al Chat y volver.
  */
 
-const PREFIX = 'crevy:ws:';
+const PREFIX = 'bako:ws:';
 
 export function loadWork<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;

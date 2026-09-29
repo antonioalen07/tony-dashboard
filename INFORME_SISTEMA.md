@@ -1,4 +1,4 @@
-# Informe del sistema — Dashboard Content + Studio
+# Informe del sistema — BAKO + Studio
 
 > Documento de referencia ("precedente"): qué es el sistema, cómo está armado, y
 > **el requerimiento mínimo** para hacerlo funcionar de cero — APIs, tokens,
@@ -11,9 +11,9 @@
 Un dashboard personal de inteligencia y producción de contenido para Instagram.
 Dos grandes bloques:
 
-- **Dashboard Content** — métricas de la cuenta, análisis con IA, inspiración
+- **BAKO** — métricas de la cuenta, análisis con IA, inspiración
   (reels de la competencia), chat con IA sobre tu contenido.
-- **Crevy Studio** — producción: editor de **Historias** (9:16), generador de
+- **BAKO Studio** — producción: editor de **Historias** (9:16), generador de
   **Variantes** de video (para testear cuál rinde), y **Calendario** de publicación.
 
 ---

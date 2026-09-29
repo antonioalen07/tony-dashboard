@@ -1,10 +1,10 @@
-# Crevy Studio — Handoff para continuar el build (sesión nueva)
+# BAKO Studio — Handoff para continuar el build (sesión nueva)
 
 > Este repo (`C:\dev\brand-dashboard`) es la copia **fuera de OneDrive**, creada para que el spawn de worktrees paralelos funcione (dentro de OneDrive fallaba con EEXIST por locks de sincronización). La copia vieja en OneDrive queda como respaldo, ya no se usa.
 
 ## Cómo retomar (pegá esto en la sesión nueva abierta en C:\dev\brand-dashboard)
 
-> "Leé STUDIO_HANDOFF.md y el plan en `C:\Users\ANTONIO 2\.claude\plans\breezy-brewing-lake.md`. Retomá el build de Crevy Studio: lanzá las unidades 3 a 8 como agentes paralelos (isolation worktree, background) usando los prompts de este doc, y después hacé la pasada de integración."
+> "Leé STUDIO_HANDOFF.md y el plan en `C:\Users\ANTONIO 2\.claude\plans\breezy-brewing-lake.md`. Retomá el build de BAKO Studio: lanzá las unidades 3 a 8 como agentes paralelos (isolation worktree, background) usando los prompts de este doc, y después hacé la pasada de integración."
 
 ## Estado actual (hecho)
 
@@ -41,7 +41,7 @@
 ## Bloque compartido (incluir en CADA prompt de agente)
 
 ```
-Sos un worker de una migración paralela. Implementás UNA unidad del feature "Crevy Studio".
+Sos un worker de una migración paralela. Implementás UNA unidad del feature "BAKO Studio".
 PROYECTO: Crevy Content, dashboard de Instagram. Next.js 16.2.6 (App Router), React 19, TS, CSS Modules, Supabase (@supabase/supabase-js, anon). Alias @/* → src/*.
 Checkout principal (para copiar .env.local): C:\dev\brand-dashboard
 Tu worktree branchea de main (commit ceecff8) con la base incluida (supabase_migration_studio.sql, src/lib/studio-types.ts, jszip).

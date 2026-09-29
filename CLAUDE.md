@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Dashboard Content
+# BAKO
 
 Panel de inteligencia de contenido de Instagram para la marca personal de
 Antonio (`@tony.ia_`). Next.js 16 + React 19 + Supabase + Meta Graph API.
@@ -65,10 +65,17 @@ Para diagnosticar el estado real de la base: script node con
 
 ## Nombres (no renombrar por las tuyas)
 
-El **producto** se llama **Dashboard Content** (UI, metadata, docs). **Crevy es
-la empresa** y se mantiene a propósito en `src/lib/brand.ts` y en el prompt de
-`/api/chat`. La app de Meta registrada como "Crevy Content" y el módulo interno
-"Crevy Studio" también quedan como están.
+El **producto** se llama **BAKO** (UI, metadata, docs, favicon). Antes se
+llamaba "Dashboard Content"; el rebrand es de septiembre de 2026.
+
+**Crevy es la empresa de Antonio, no el producto**, y se mantiene a propósito en
+`src/lib/brand.ts` y en el prompt de `/api/chat`: ahí "Crevy" es *contenido* del
+entrenamiento de la IA (Antonio es su fundador), no una etiqueta de marca del
+sistema. No lo renombres.
+
+La app registrada en Meta sigue llamándose **"Crevy Content"**: es un nombre de
+la consola de Meta, no se cambia desde el código y renombrarla dispara revisión.
+El módulo interno pasó a llamarse **BAKO Studio**.
 
 ## Arquitectura de los prompts de IA
 

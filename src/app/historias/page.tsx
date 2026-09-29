@@ -77,7 +77,9 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /** Clave del borrador autosave en localStorage. */
-const DRAFT_KEY = 'crevy_historias_draft_v1';
+const DRAFT_KEY = 'bako_historias_draft_v1';
+/** Clave previa al rebrand a BAKO: se lee una vez para no perder borradores en vuelo. */
+const DRAFT_KEY_LEGACY = 'crevy_historias_draft_v1';
 
 /** Normaliza una palabra para comparar contra la lista de subrayado. */
 const cleanWord = (w: string) =>
@@ -285,7 +287,7 @@ export default function HistoriasPage() {
     if (restoredRef.current || loading) return;
     restoredRef.current = true;
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      const raw = localStorage.getItem(DRAFT_KEY) ?? localStorage.getItem(DRAFT_KEY_LEGACY);
       if (!raw) return;
       const draft = JSON.parse(raw);
       if (draft?.projectId && Array.isArray(draft.slides) && projects.some((p) => p.id === draft.projectId)) {
@@ -388,7 +390,7 @@ export default function HistoriasPage() {
       return;
     }
     toast('Guardado', 'success');
-    try { localStorage.removeItem(DRAFT_KEY); } catch { /* no-op */ }
+    try { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(DRAFT_KEY_LEGACY); } catch { /* no-op */ }
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, name: name.trim(), slides } : p)),
     );
@@ -401,7 +403,7 @@ export default function HistoriasPage() {
       setProjectId(null);
       setSlides([]);
       setName('');
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* no-op */ }
+      try { localStorage.removeItem(DRAFT_KEY); localStorage.removeItem(DRAFT_KEY_LEGACY); } catch { /* no-op */ }
     }
     toast('Proyecto eliminado', 'info');
   };

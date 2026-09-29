@@ -4,7 +4,7 @@ import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
-  title: 'Dashboard Content',
+  title: 'BAKO',
   description: 'Inteligencia de contenido de Instagram',
 };
 

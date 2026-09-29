@@ -1,4 +1,4 @@
-# Dashboard Content
+# BAKO
 
 Centro de mando de contenido de Instagram para la marca personal (`tony.ia_`).
 Next.js 16 + React 19 + Supabase + Apify + ElevenLabs + Meta Graph API.
@@ -14,7 +14,7 @@ modelo con `LLM_MODEL`. En producción corre OpenAI.
 - **Inspiración (Banger Hunter)**: escaneá a tus referentes fijos o investigá cualquier cuenta puntual. Detecta videos virales con la fórmula del monitor_viral (score 0-100: velocidad vs mediana de la cuenta + penetración + frescura; banger = ≥60) y **adapta el guion a tu marca** (transcribe el viral y lo reescribe con tu voz, pilares y kit de marca).
 - **AI Chat**: estratega personal con tu kit de marca completo (avatar, pilares, variables probadas). Sesiones persistentes y retomables. Razona sobre transcripciones + análisis + métricas reales. El botón **Entrenamiento** abre el editor del prompt: **los tres prompts del sistema (chat, análisis por reel y adaptación de virales) se arman sólo con esos 17 bloques**, no hay texto de estrategia fuera del editor. Un bloque sin tocar sigue el default del código, uno editado lo pisa y uno **vacío se apaga** (no se le manda a la IA). Las pestañas de preview muestran el prompt final tal cual lo recibe el modelo.
 - **Guiones**: tablero tipo Trello con cinco etapas (Borrador → Listo para grabar → Grabado → En edición → Publicado). Cada tarjeta separa **hook** (con espacio para cargar todas las variantes), **cuerpo** y **CTA**, lleva etiqueta de **formato** (talking head, pantalla dividida, entrevista, mostrando pantalla, b-roll, voz en off) más etiquetas libres, y guarda **links de referencia** que se abren en un toque o se previsualizan ahí mismo (Instagram, YouTube, TikTok, Vimeo, Drive). Se arrastra entre columnas, o se mueve con los botones ‹ › en mobile. La segunda vista es el **banco de ideas y referencias**: se guarda la idea o el video que te gustó, y cualquiera se convierte en guion con un botón.
-- **Crevy Studio** — producción y publicación de contenido:
+- **BAKO Studio** — producción y publicación de contenido:
   - **Historias**: editor visual 9:16 con fondos (subida directa + Google Drive), capas de texto arrastrables (tipografía, tamaño, color, negrita, subrayado, resaltado) y export de la secuencia (4-6 slides) como ZIP de PNGs 1080×1920.
   - **Variantes**: a partir de un reel ganador genera 5-10 re-ediciones sutiles (saturación, contraste, micro-cortes de inicio, velocidad ±2%, zoom leve) vía ffmpeg en el worker, para testearlas como *trial reels*.
   - **Calendario**: distribuye las variantes en días de forma dispareja (hora aleatoria 11:00-21:00) y las publica por la Content Publishing API de Meta (`media_type=REELS` + `trial_params`). `PUBLISH_DRY_RUN=1` loguea sin publicar.
@@ -25,7 +25,7 @@ modelo con `LLM_MODEL`. En producción corre OpenAI.
 
 1. `supabase_schema.sql` — tabla `reels` (inicial).
 2. `supabase_migration_inspiration.sql` — referentes, bangers, sesiones de chat (**correr en el SQL Editor de Supabase**). La app degrada con un aviso si falta.
-3. `supabase_migration_studio.sql` — Crevy Studio: `media_assets`, `story_projects`, `variant_jobs`, `video_variants`, `publish_queue`, `google_tokens` + bucket público `studio` (**correr en el SQL Editor de Supabase**). Las páginas de Studio muestran un banner 428 si falta.
+3. `supabase_migration_studio.sql` — BAKO Studio: `media_assets`, `story_projects`, `variant_jobs`, `video_variants`, `publish_queue`, `google_tokens` + bucket público `studio` (**correr en el SQL Editor de Supabase**). Las páginas de Studio muestran un banner 428 si falta.
 4. `supabase_migration_ai_config.sql` — `publish_queue.caption` (faltaba en bases creadas antes de esa columna: sin ella no se puede guardar el texto del post) y `ai_settings`, el entrenamiento editable de la IA. Sin correrla, los prompts caen a los defaults del código y el editor avisa que no puede guardar.
 5. `supabase_migration_produccion.sql` — `reels.bookings` y `reels.qualified_leads` (agendas y leads calificados por reel, carga manual) + las tablas `scripts` (tablero de guiones) e `ideas` (banco de ideas y referencias). Sin correrla, la sección Guiones muestra el banner 428 y los dos campos de negocio avisan que no pueden guardar.
 6. `supabase_migration_auth.sql` — `app_users`, `app_sessions`, `auth_events`: la autenticación propia (ver [Acceso y seguridad](#acceso-y-seguridad)). **Sin ella la app no deja entrar a nadie** (503 en el login), a propósito.

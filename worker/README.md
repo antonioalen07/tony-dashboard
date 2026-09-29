@@ -1,7 +1,7 @@
-# Crevy Studio — Worker
+# BAKO Studio — Worker
 
 Proceso de larga duración (sin puerto HTTP) que corre en el VPS y procesa la
-cola de jobs de Crevy Studio contra Supabase. Hoy incluye el **motor de
+cola de jobs de BAKO Studio contra Supabase. Hoy incluye el **motor de
 variantes de video**; más adelante se le suman otros jobs (p. ej. el publicador).
 
 ## Arquitectura

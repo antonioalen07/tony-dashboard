@@ -1,5 +1,5 @@
 -- ============================================================================
--- Dashboard Content — Migración: autenticación propia (usuarios + sesiones)
+-- BAKO — Migración: autenticación propia (usuarios + sesiones)
 --
 -- Reemplaza la puerta de acceso basada en la variable de entorno AUTH_USERS
 -- (cookie = hash de email:clave, imposible de revocar) por:

@@ -10,7 +10,7 @@ Antonio (creador de contenido en Instagram, marca personal "Crevy") y su equipo.
 
 ## Product Purpose
 
-Dashboard Content es un panel de inteligencia de contenido de Instagram. Centraliza métricas privadas (Meta API) y públicas por reel, las transcribe (ElevenLabs) y las analiza con IA (Claude vía OpenRouter) para producir recomendaciones accionables de crecimiento. Éxito = el usuario entiende por qué un reel funcionó y qué cambiar en el siguiente, sin salir del panel.
+BAKO es un panel de inteligencia de contenido de Instagram. Centraliza métricas privadas (Meta API) y públicas por reel, las transcribe (ElevenLabs) y las analiza con IA (Claude vía OpenRouter) para producir recomendaciones accionables de crecimiento. Éxito = el usuario entiende por qué un reel funcionó y qué cambiar en el siguiente, sin salir del panel.
 
 ## Brand Personality
 

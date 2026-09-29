@@ -29,7 +29,13 @@ Excepción: el editor de Historias usa colores saturados (pincel, resaltado, gu�
 
 ## Logo
 
-Monograma **DC** monolineal sobre badge grafito (`#17171a`, radio 17/64, filo de luz superior). D en `#fafafa` (primaria) y C en `#a1a1aa` (secundaria): la jerarquía es de luminancia, no de color, así que el badge funciona igual sobre fondo claro u oscuro. Mismo dibujo en `src/app/icon.svg` y en `favicon.ico` (16/32/48/64) con trazo algo más grueso.
+**BAKO.** Monograma **B** monolineal sobre badge grafito (`#17171a`, radio 17/64, filo de luz superior), construido sobre grilla de 64: tallo recto en `x=23`, bowl superior de radio 7.5 y bowl inferior apenas más ancha — la proporción clásica de una B, sin florituras.
+
+La jerarquía es de **luminancia, no de color** (misma regla que el resto del sistema): tallo + bowl superior en `#fafafa` (primaria), bowl inferior en `#a1a1aa` (secundaria). Sin matiz de marca, el badge se lee igual sobre fondo claro u oscuro y no compite con ningún dato de la UI.
+
+En `Logo.tsx` el orden de los paths importa: la bowl gris va **primero** para que el trazo blanco la pise en la barra del medio y la B quede continua, con el salto a gris recién después del tallo. Mismo dibujo en `src/app/icon.svg` y en `favicon.ico` (16/32/48/64) con trazo algo más grueso.
+
+**Wordmark**: `BAKO` en Manrope 800 con tracking `0.2em`. Una palabra de cuatro letras en caja alta necesita tracking positivo — el negativo que servía para "Dashboard" la apelmaza.
 
 ## Typography
 

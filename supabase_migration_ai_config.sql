@@ -1,5 +1,5 @@
 -- ============================================================================
--- Dashboard Content — migración: caption de la cola + configuración de la IA
+-- BAKO — migración: caption de la cola + configuración de la IA
 --
 -- Re-ejecutable: todo es IF NOT EXISTS / ON CONFLICT. Correr entero en el
 -- SQL Editor de Supabase.

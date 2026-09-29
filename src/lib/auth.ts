@@ -1,5 +1,5 @@
 /**
- * Autenticación propia de Dashboard Content (sólo servidor).
+ * Autenticación propia de BAKO (sólo servidor).
  *
  * Modelo:
  *   - `app_users`     usuarios con clave hasheada (scrypt), rol admin|member,
@@ -26,8 +26,8 @@ import { supabase } from '@/utils/supabase';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, keylen: number, opts: object) => Promise<Buffer>;
 
-export const COOKIE_NAME = 'crevy_session';
-export const AUTH_HEADER = 'x-crevy-auth';
+export const COOKIE_NAME = 'bako_session';
+export const AUTH_HEADER = 'x-bako-auth';
 /** Vida máxima de una sesión desde el login. */
 export const SESSION_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 días
 /** Sin actividad durante este tiempo, la sesión muere aunque no haya vencido. */

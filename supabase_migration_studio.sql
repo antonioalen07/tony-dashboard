@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migración: Crevy Studio (Historias + Variantes de video + Calendario)
+-- Migración: BAKO Studio (Historias + Variantes de video + Calendario)
 -- Ejecutar UNA vez en el SQL Editor de Supabase.
 -- Es idempotente: se puede correr de nuevo sin romper nada.
 -- No toca la tabla `reels` ni ninguna tabla existente (solo CREATE ... IF NOT EXISTS).

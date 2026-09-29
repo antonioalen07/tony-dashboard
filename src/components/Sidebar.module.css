@@ -103,9 +103,10 @@
 .brand {
   font-family: var(--font-display);
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  /* Wordmark de 4 letras en caja alta: pide tracking positivo, no negativo. */
+  letter-spacing: 0.2em;
 }
 
 .product {

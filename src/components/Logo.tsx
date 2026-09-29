@@ -3,9 +3,17 @@ interface LogoProps {
 }
 
 /**
- * Monograma "DC" (Dashboard Content): badge grafito con letterforms monolineales
- * geométricas — D en blanco (primaria) y C en gris medio (secundaria). Sin color:
- * la jerarquía la da la luminancia, así que se ve igual sobre fondo claro u oscuro.
+ * Monograma "B" (BAKO): badge grafito con una B monolineal construida sobre
+ * grilla — tallo recto y dos bowls semicirculares, la inferior apenas más ancha.
+ *
+ * La jerarquía la da la LUMINANCIA, no el matiz (misma regla que el resto del
+ * sistema, ver DESIGN.md): tallo + bowl superior en blanco, bowl inferior en
+ * gris medio. Sin color de marca: se lee igual sobre fondo claro u oscuro y no
+ * compite con nada de la UI.
+ *
+ * El orden de los paths importa: la bowl gris va PRIMERO para que el trazo
+ * blanco la pise en la barra del medio y la B quede continua, con el salto a
+ * gris apareciendo recién después del tallo.
  */
 export default function Logo({ size = 34 }: LogoProps) {
   return (
@@ -16,11 +24,11 @@ export default function Logo({ size = 34 }: LogoProps) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="Dashboard Content"
+      aria-label="BAKO"
     >
       <defs>
         {/* Filo de luz: marcado arriba, se apaga hacia abajo */}
-        <linearGradient id="dcRim" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
+        <linearGradient id="bakoRim" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.26" />
           <stop offset="55%" stopColor="#ffffff" stopOpacity="0.09" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0.04" />
@@ -35,24 +43,26 @@ export default function Logo({ size = 34 }: LogoProps) {
         width="62.5"
         height="62.5"
         rx="17"
-        stroke="url(#dcRim)"
+        stroke="url(#bakoRim)"
         strokeWidth="1.5"
       />
 
-      {/* D */}
+      {/* Bowl inferior (secundaria) */}
       <path
-        d="M9 21h7.5a10.5 10.5 0 0 1 0 21H9z"
-        stroke="#fafafa"
-        strokeWidth="4"
-        strokeLinejoin="round"
-      />
-
-      {/* C */}
-      <path
-        d="M50.46 23.23A10.5 10.5 0 1 0 50.46 39.77"
+        d="M23 32h11a7.5 7.5 0 0 1 0 15H23"
         stroke="#a1a1aa"
         strokeWidth="4"
         strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Tallo + bowl superior (primaria) */}
+      <path
+        d="M23 47V17h9.5a7.5 7.5 0 0 1 0 15H23"
+        stroke="#fafafa"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

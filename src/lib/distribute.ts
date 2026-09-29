@@ -1,5 +1,5 @@
 /**
- * Distribución de variantes en el calendario de publicación (Crevy Studio · Unidad 8).
+ * Distribución de variantes en el calendario de publicación (BAKO Studio · Unidad 8).
  *
  * Función PURA: no toca Supabase, no lee reloj global salvo el `startDate` que recibe,
  * y acepta un `rng` inyectable para poder testear de forma determinista. Los defaults

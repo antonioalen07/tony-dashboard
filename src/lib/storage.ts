@@ -1,7 +1,7 @@
 /**
  * Helpers de Storage sobre el bucket público "studio" de Supabase.
  *
- * Todas las unidades de Crevy Studio suben/borran archivos a través de acá,
+ * Todas las unidades de BAKO Studio suben/borran archivos a través de acá,
  * para mantener un solo lugar donde se resuelve el path, el content-type y la
  * URL pública. No re-implementar `supabase.storage.from('studio')` en otro lado.
  *
