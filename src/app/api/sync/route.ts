@@ -150,50 +150,55 @@ export async function POST() {
     // 2. Insights de cada reel, en paralelo acotado.
     const insights = await mapLimit(videos, INSIGHTS_CONCURRENCY, (v) => fetchInsights(v.id, token));
 
-    const rows = videos.map((item, i) => {
+    const base = (item: MediaItem) => ({
+      instagram_id: item.id,
+      title: item.caption || '',
+      // Preferimos SIEMPRE la copia del Storage; la del CDN es el último recurso.
+      cover_url:
+        alreadyStored.get(item.id) || fresh.get(item.id) ||
+        item.thumbnail_url || item.media_url || '',
+      video_url: item.permalink || '',
+      published_at: item.timestamp,
+      likes: item.like_count || 0,
+      comments: item.comments_count || 0,
+    });
+
+    // Con métricas: fila completa.
+    const withMetrics = videos.flatMap((item, i) => {
       const ins = insights[i];
-      const reach = ins?.reach ?? 0;
-      const saves = ins?.saves ?? 0;
-      const shares = ins?.shares ?? 0;
+      if (!ins) return [];
       // Reproducciones reales; el alcance solo como último recurso.
-      const views = ins?.views || reach;
+      const views = ins.views || ins.reach;
 
       // Engagement Rate = (likes + comentarios + guardados + compartidos) / alcance * 100
       let engagementRate: number | null = null;
-      if (reach > 0) {
-        const totalInteractions = (item.like_count || 0) + (item.comments_count || 0) + saves + shares;
-        engagementRate = parseFloat(((totalInteractions / reach) * 100).toFixed(2));
+      if (ins.reach > 0) {
+        const totalInteractions = (item.like_count || 0) + (item.comments_count || 0) + ins.saves + ins.shares;
+        engagementRate = parseFloat(((totalInteractions / ins.reach) * 100).toFixed(2));
       }
-
-      return {
-        instagram_id: item.id,
-        title: item.caption || '',
-        // Preferimos SIEMPRE la copia del Storage; la del CDN es el último recurso.
-        cover_url:
-          alreadyStored.get(item.id) || fresh.get(item.id) ||
-          item.thumbnail_url || item.media_url || '',
-        video_url: item.permalink || '',
-        published_at: item.timestamp,
-        views,
-        likes: item.like_count || 0,
-        comments: item.comments_count || 0,
-        reach,
-        saves,
-        shares,
+      return [{
+        ...base(item), views, reach: ins.reach, saves: ins.saves, shares: ins.shares,
         engagement_rate: engagementRate,
-      };
+      }];
     });
+    // Sin métricas (Meta no las da para algunos posts viejos): se actualizan los
+    // datos públicos pero NO las columnas de métricas, para no pisar con 0 lo
+    // que ya estaba guardado. Va en un upsert aparte porque en lote todas las
+    // filas tienen que traer las mismas columnas.
+    const withoutMetrics = videos.filter((_, i) => !insights[i]).map(base);
 
     // 3. Upsert en lote (antes era uno por reel: N viajes a la base).
     const synced: unknown[] = [];
-    for (let i = 0; i < rows.length; i += 100) {
-      const chunk = rows.slice(i, i + 100);
-      const { data, error } = await supabase
-        .from('reels')
-        .upsert(chunk, { onConflict: 'instagram_id' })
-        .select();
-      if (error) console.error('Error guardando reels en Supabase:', error);
-      else synced.push(...(data || []));
+    for (const rows of [withMetrics, withoutMetrics]) {
+      for (let i = 0; i < rows.length; i += 100) {
+        const chunk = rows.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from('reels')
+          .upsert(chunk, { onConflict: 'instagram_id' })
+          .select();
+        if (error) console.error('Error guardando reels en Supabase:', error);
+        else synced.push(...(data || []));
+      }
     }
 
     return NextResponse.json({
