@@ -16,7 +16,7 @@ import { AUTH_HEADER, COOKIE_NAME, AuthUnavailableError, resolveSession, signAut
  *  - Al handler le llega un header firmado con los claims; el que traiga el
  *    cliente se descarta siempre.
  */
-const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout', '/api/webhooks/instagram'];
 const PASSWORD_CHANGE_PATHS = ['/cuenta', '/api/account/password', '/api/me', '/api/logout'];
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -29,6 +29,13 @@ const json = (error: string, status: number, extra: Record<string, unknown> = {}
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApi = pathname.startsWith('/api/');
+
+  // Meta se autentica con HMAC; no necesita sesión ni Origin de navegador.
+  if (pathname === '/api/webhooks/instagram') {
+    const headers = new Headers(request.headers);
+    headers.delete(AUTH_HEADER);
+    return NextResponse.next({ request: { headers } });
+  }
 
   // CSRF: una petición que muta tiene que ser same-origin.
   if (isApi && MUTATING.has(request.method)) {

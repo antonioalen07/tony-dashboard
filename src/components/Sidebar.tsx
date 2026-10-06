@@ -13,6 +13,7 @@ import {
   ImagePlay,
   Clapperboard,
   CalendarDays,
+  Zap,
   Menu,
   X,
   LogOut,
@@ -75,6 +76,7 @@ export default function Sidebar() {
     { label: 'Historias', icon: <ImagePlay size={18} />, href: '/historias' },
     { label: 'Variantes', icon: <Clapperboard size={18} />, href: '/variantes' },
     { label: 'Calendario', icon: <CalendarDays size={18} />, href: '/calendario' },
+    { label: 'Automatizaciones', icon: <Zap size={18} />, href: '/automatizaciones' },
     ...(me?.role === 'admin' ? [{ label: 'Admin', icon: <ShieldCheck size={18} />, href: '/admin' }] : []),
   ];
 

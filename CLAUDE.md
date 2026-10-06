@@ -157,6 +157,28 @@ finales tal cual los recibe el modelo.
   hardcodeados — el tema claro/oscuro se invierte por luminancia. Ver
   `DESIGN.md`.
 
+## Automatizaciones
+
+`/automatizaciones`: comment-to-DM, etiquetas libres, contactos y secuencias de
+texto/audio. Migración manual: `supabase_migration_automations.sql`.
+Webhook público `/api/webhooks/instagram`: verificación HMAC; sólo persiste eventos.
+`worker/jobs/automations.mjs` (15 s) es el único emisor; polling de respaldo cada 5 min.
+Matching compartido en `worker/lib/match.mjs`; RPCs serializan reclamos y cupo por hora.
+Un comentario = un evento. Seguimientos requieren un DM entrante en las últimas 24 h.
+Las respuestas entrantes detienen secuencias configuradas con `stop_on_reply`.
+Envíos sin confirmación quedan `uncertain`; no se reintentan automáticamente.
+Audios: adjuntos nativos por URL pública; soporte real de Meta pendiente de tu prueba.
+Pruebas sin enviar mensajes: `npm run test:automations`, `npm run lint:automations`.
+
+Activación: service-role key en Vercel/worker, correr SQL, configurar
+`META_WEBHOOK_VERIFY_TOKEN` y `META_APP_SECRET`; callback
+`https://<dominio>/api/webhooks/instagram`, objeto Instagram, campos `comments`
+y `messages`. Ejecutar `node scripts/subscribe_webhooks.mjs` para suscribir la
+página (feed), activar acceso a mensajes en Instagram y redeployar el worker.
+La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
+`node scripts/test_private_reply.mjs --list <media_id>` y luego `--comment <id>
+--text "Prueba BAKO"`. No ejecutar scripts de envío/suscripción como parte de tests.
+
 ## Al hacer cambios de UI
 
 El contenido más ancho que el área útil debe poder alcanzarse (scroll), nunca

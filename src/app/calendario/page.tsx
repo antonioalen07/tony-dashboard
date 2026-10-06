@@ -6,6 +6,7 @@ import {
   Trash2, TriangleAlert,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import AutomationShortcut from '@/components/AutomationShortcut';
 import { supabase } from '@/utils/supabase';
 import { deleteManyFromStudio } from '@/lib/storage';
 import { distributeUneven } from '@/lib/distribute';
@@ -356,6 +357,7 @@ export default function CalendarioPage() {
       )}
       <span className={styles.chipTime}>{it.scheduled_at ? timeOf(it.scheduled_at) : '—'}</span>
       <span className={styles.chipKind}>{it.kind}</span>
+      {it.status === 'pending' && <AutomationShortcut queueId={it.id} caption={it.caption} />}
       {editingId === it.id ? (
         <input
           className={styles.chipInput}

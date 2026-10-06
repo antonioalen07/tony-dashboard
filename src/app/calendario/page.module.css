@@ -204,6 +204,7 @@
 /* ---- Chip de publicación ---- */
 .chip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-size: 0.72rem;

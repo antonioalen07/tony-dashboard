@@ -92,3 +92,30 @@ node jobs/retention.mjs --now --apply  # ejecutarlo
 ```
 
 En los logs aparece `[retention] …` sólo cuando borra algo.
+
+## Automatizaciones (`jobs/automations.mjs`)
+
+Cada 15 segundos vincula automatizaciones del calendario, inscribe contactos en
+secuencias elegibles y reclama hasta 10 trabajos con cupo compartido de mensajes.
+El polling de comentarios corre cada 5 minutos como respaldo del webhook.
+El loader descubre el job automáticamente; no hace falta tocar `index.mjs`.
+
+Ejecutá `supabase_migration_automations.sql` en el SQL Editor de Supabase antes
+de usarlo. Requiere `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`META_ACCESS_TOKEN`, `META_IG_ACCOUNT_ID`, `META_PAGE_ID` y, opcionalmente,
+`META_MESSAGING_ENDPOINT` (`page` / `instagram`) y `AUTOMATION_MAX_DM_PER_HOUR`
+(180 por defecto, 0 suspende envíos). El worker resuelve y cachea el page token.
+
+Los seguimientos usan una ventana conservadora de 24 h desde el último mensaje
+entrante. Fuera de ventana quedan bloqueados; no se reactivan solos. La app permite
+reintentarlos explícitamente tras revisar el contacto. Una respuesta cancela los
+pasos pendientes cuando la secuencia tiene activado detener al responder.
+Los audios se envían como adjuntos por URL pública, sin descarga desde el worker.
+
+Un timeout o reinicio durante el envío deja el trabajo `uncertain`: revisá
+Instagram antes de intervenir. Nunca se reenvía un DM por fallar su respuesta
+pública. Las tablas de automatizaciones no están incluidas en la retención de video.
+
+Desde la raíz del repo: `npm run test:automations` (PostgreSQL local en memoria y
+Meta simulado). Estas pruebas no envían mensajes ni modifican Supabase.
+Para activar cambios en Easypanel, redeployá el worker después de desplegar la app.

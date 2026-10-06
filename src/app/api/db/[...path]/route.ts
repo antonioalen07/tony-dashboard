@@ -23,7 +23,9 @@ export const dynamic = 'force-dynamic';
  *    directo a Supabase con una URL firmada, ver /api/storage/sign-upload.
  */
 const UPSTREAM = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
-const DENIED_TABLES = new Set(['app_users', 'app_sessions', 'auth_events', 'rpc', '']);
+const DENIED_TABLES = new Set(['app_users', 'app_sessions', 'auth_events', 'rpc', '',
+  'automations', 'automation_events', 'leads', 'lead_messages', 'lead_tags',
+  'lead_tag_assignments', 'followup_sequences', 'followup_enrollments', 'followup_jobs']);
 
 /** Headers del cliente que sí tienen sentido reenviar. Nada de auth, cookies ni perfiles de esquema. */
 const FORWARD_REQUEST_HEADERS = [
