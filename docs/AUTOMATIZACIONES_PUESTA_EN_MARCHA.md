@@ -1,6 +1,7 @@
 # Automatizaciones de BAKO: puesta en marcha
 
-El código incluye comment-to-DM con respuesta pública opcional, contactos,
+Es una sección de BAKO y reutiliza su integración existente con la app de Meta
+**Marca Tony Dashboard**. El código incluye comment-to-DM con respuesta pública opcional, contactos,
 etiquetas libres, calificación y secuencias de texto o audio. Los envíos reales
 quedan pendientes de tu prueba desde otra cuenta de Instagram.
 
@@ -15,7 +16,7 @@ Si falta la migración, la pantalla muestra un banner y las APIs devuelven 428.
 
 ## 2. Variables de entorno
 
-Cargá en Vercel y en Easypanel las credenciales existentes de Supabase y Meta.
+Reutilizá en Vercel y en Easypanel las credenciales existentes de Supabase y Meta.
 Usá la misma cuenta profesional en ambos:
 
 ```
@@ -28,16 +29,34 @@ META_MESSAGING_ENDPOINT=page
 AUTOMATION_MAX_DM_PER_HOUR=180
 ```
 
-En Vercel agregá también `META_APP_SECRET` y un `META_WEBHOOK_VERIFY_TOKEN`
-aleatorio. No compartas las claves en el navegador. El cupo se comparte entre
+`META_ACCESS_TOKEN` y `META_APP_SECRET` ya existen en el proyecto. No hace falta
+generar otro access token ni crear otra app. `META_WEBHOOK_VERIFY_TOKEN` es una
+cadena independiente para verificar el callback; si ya la configuraste en Vercel
+y Meta, reutilizá el mismo valor. Si no existe, creala y guardala en ambos lados.
+No uses el token permanente de acceso como verify token ni compartas las claves
+en el navegador. El cupo se comparte entre
 Private Replies y seguimientos. `AUTOMATION_MAX_DM_PER_HOUR=0` suspende los envíos.
 La variable `PUBLISH_DRY_RUN` del publicador de videos no controla estos mensajes.
+
+### Estado comprobado en Meta (6-oct-2026)
+
+- Nombre de la app: Marca Tony Dashboard.
+- Access token válido, de tipo System User, sin expiración y perteneciente a esa app.
+- Permisos de comentarios y mensajes presentes; App Secret presente en `.env.local`.
+- Webhooks de la app: `GET /{app-id}/subscriptions` devolvió `data: []`.
+- Apps suscriptas a la página: `GET /{page-id}/subscribed_apps` devolvió `data: []`.
+- `META_WEBHOOK_VERIFY_TOKEN` ausente en `.env.local`. No se inspeccionaron las
+  variables de Vercel, por lo que su ausencia local no demuestra que falte allí.
+
+La ruta `/api/webhooks/instagram` ya existe en BAKO; lo pendiente detectado es
+registrar/suscribir la entrega de eventos en Meta. Tener permisos y una ruta
+implementada no registra automáticamente el callback.
 
 ## 3. Meta y despliegue
 
 1. Desplegá la app y redeployá el worker en Easypanel con sus variables.
-2. En la app profesional de Instagram habilitá acceso a mensajes para herramientas
-   conectadas. Verificá los permisos de administrar comentarios y mensajes.
+2. Si aún no está habilitado, en la app profesional de Instagram permití acceso a
+   mensajes para herramientas conectadas. Los permisos del token ya se verificaron.
 3. En la consola de Meta configurá el objeto Instagram con callback
    `https://<tu-dominio>/api/webhooks/instagram` y el verify token anterior.
    Suscribí `comments` y `messages`. Los mensajes entrantes son necesarios para

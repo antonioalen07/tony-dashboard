@@ -21,6 +21,13 @@ Se configura desde una sección nueva **"Automatizaciones"** y se ven los result
 
 ## Estado verificado (6-oct-2026)
 
+- Nombre de la app comprobado con Graph API: **Marca Tony Dashboard**. Es la
+  integración existente de BAKO; no hace falta crear otra app ni otro access token.
+- Revisión posterior: token válido, `SYSTEM_USER`, `expires_at=0`; `META_APP_SECRET`
+  presente localmente. `GET /{app-id}/subscriptions` devolvió `data: []`.
+  `META_WEBHOOK_VERIFY_TOKEN` ausente en `.env.local`; no se revisaron envs de Vercel.
+  El verify token es independiente del access token permanente.
+
 - `META_ACCESS_TOKEN` es de **System User** (no vence) con `instagram_manage_comments`,
   `instagram_manage_messages`, `pages_messaging`, `pages_manage_metadata`,
   `pages_read_engagement`. Está en Vercel, en Easypanel (worker) y en `.env.local`.

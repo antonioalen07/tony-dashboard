@@ -55,9 +55,11 @@ Para diagnosticar el estado real de la base: script node con
   `OPENROUTER_API_KEY` local está **muerta** (401 pese a tener crédito). Para
   probar chat/analyze/adapt en local hay que agregar la key de OpenAI a
   `.env.local`.
-- **Token de Meta**: dura ~60 días. Renovación: token corto del Graph Explorer →
-  `META_ACCESS_TOKEN` en `.env.local` → `node refresh_meta_token.js` → copiar el
-  resultado a Vercel + redeploy. El de Vercel debe ser siempre el LARGO.
+- **Token de Meta**: desde el 6-oct-2026 se usa un **System User token permanente**.
+  Se verificó con `debug_token`: válido, `expires_at=0`, con permisos de administrar
+  comentarios/mensajes y perteneciente a la misma app de `META_APP_ID`.
+  Reutilizarlo; no reemplazarlo por un token de usuario de 60 días ni renovarlo con
+  el helper antiguo `/api/meta/token`. `META_APP_SECRET` ya existe en `.env.local`.
 - **Supabase usa la anon key también en el servidor.** Un DELETE sin policy se
   ignora en silencio (ya hubo un "borrado fantasma" de duplicados).
 - **Vercel Hobby**: `/api/transcribe` y `/api/inspiration/adapt` pueden cortarse
@@ -73,8 +75,9 @@ llamaba "Dashboard Content"; el rebrand es de septiembre de 2026.
 entrenamiento de la IA (Antonio es su fundador), no una etiqueta de marca del
 sistema. No lo renombres.
 
-La app registrada en Meta sigue llamándose **"Crevy Content"**: es un nombre de
-la consola de Meta, no se cambia desde el código y renombrarla dispara revisión.
+La app registrada en Meta se llama **"Marca Tony Dashboard"** (nombre verificado
+con Graph API el 6-oct-2026). Es la misma integración usada por BAKO; reutilizar
+`META_APP_ID`, `META_APP_SECRET` y `META_ACCESS_TOKEN`, sin crear otra app.
 El módulo interno pasó a llamarse **BAKO Studio**.
 
 ## Retención del Storage (automática)
@@ -170,11 +173,16 @@ Envíos sin confirmación quedan `uncertain`; no se reintentan automáticamente.
 Audios: adjuntos nativos por URL pública; soporte real de Meta pendiente de tu prueba.
 Pruebas sin enviar mensajes: `npm run test:automations`, `npm run lint:automations`.
 
-Activación: service-role key en Vercel/worker, correr SQL, configurar
-`META_WEBHOOK_VERIFY_TOKEN` y `META_APP_SECRET`; callback
+Activación: reutilizar credenciales existentes de Supabase y Meta, correr SQL,
+configurar `META_WEBHOOK_VERIFY_TOKEN` si aún no existe; callback
 `https://<dominio>/api/webhooks/instagram`, objeto Instagram, campos `comments`
 y `messages`. Ejecutar `node scripts/subscribe_webhooks.mjs` para suscribir la
 página (feed), activar acceso a mensajes en Instagram y redeployar el worker.
+Verificación del 6-oct-2026: token válido/permanente y App Secret local presentes;
+`GET /{app-id}/subscriptions` y `GET /{page-id}/subscribed_apps` devolvieron `data: []`.
+`META_WEBHOOK_VERIFY_TOKEN` está ausente en `.env.local` (Vercel no se inspeccionó).
+La ruta del webhook en el código no equivale a una suscripción registrada en Meta.
+El verify token es una cadena independiente para el handshake, no el access token.
 La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
 `node scripts/test_private_reply.mjs --list <media_id>` y luego `--comment <id>
 --text "Prueba BAKO"`. No ejecutar scripts de envío/suscripción como parte de tests.
