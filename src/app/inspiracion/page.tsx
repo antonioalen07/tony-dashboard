@@ -51,12 +51,20 @@ const proxied = (url: string) =>
 
 const scoreTier = (score: number) => (score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low');
 
+/** Ventanas de tiempo del scan (días). Lo viral se mueve por moda: nada más viejo que 90. */
+const WINDOWS = [30, 60, 90] as const;
+type WindowDays = (typeof WINDOWS)[number];
+const WINDOW_KEY = 'bako_inspiracion_window';
+
+const withinWindow = (iso: string | null, days: number) =>
+  !!iso && new Date(iso).getTime() >= Date.now() - days * 86_400_000;
+
 /** Orquesta un scan completo: start + polling hasta done (máx ~4 min). */
-async function runScan(username: string, persist: boolean): Promise<any> {
+async function runScan(username: string, persist: boolean, days: WindowDays): Promise<any> {
   const startRes = await fetch('/api/inspiration/scan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({ username, days }),
   });
   const start = await startRes.json();
   if (!startRes.ok || start.error) throw new Error(start.error || 'No se pudo iniciar el scan');
@@ -67,6 +75,10 @@ async function runScan(username: string, persist: boolean): Promise<any> {
     postsDatasetId: start.postsDatasetId,
     detailsRunId: start.detailsRunId,
     detailsDatasetId: start.detailsDatasetId,
+    // Qué key de Apify lanzó cada run (el pool cambia de key si una se queda sin crédito).
+    postsKey: String(start.postsKey ?? 0),
+    detailsKey: String(start.detailsKey ?? 0),
+    days: String(start.days ?? days),
     persist: String(persist),
   });
 
@@ -100,6 +112,20 @@ export default function InspiracionPage() {
   const [hydrated, setHydrated] = useState(false);
 
   const [adaptTarget, setAdaptTarget] = useState<BangerVideo | null>(null);
+
+  // Ventana del scan: se recuerda por navegador (es preferencia, no dato).
+  const [windowDays, setWindowDays] = useState<WindowDays>(90);
+  const [showOld, setShowOld] = useState(false);
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem(WINDOW_KEY));
+      if ((WINDOWS as readonly number[]).includes(v)) setWindowDays(v as WindowDays);
+    } catch { /* storage bloqueado: queda el default */ }
+  }, []);
+  const changeWindow = (d: WindowDays) => {
+    setWindowDays(d);
+    try { localStorage.setItem(WINDOW_KEY, String(d)); } catch { /* no-op */ }
+  };
 
   // Caché de sesión de trabajo: la búsqueda puntual sobrevive al cambiar de sección.
   useEffect(() => {
@@ -170,7 +196,7 @@ export default function InspiracionPage() {
       const r = actives[i];
       setScanStatus(`Escaneando @${r.username}… (${i + 1}/${actives.length})`);
       try {
-        const result = await runScan(r.username, true);
+        const result = await runScan(r.username, true, windowDays);
         totalBangers += result.savedCount || 0;
         if (result.warning === 'migration_required') setMigrationNeeded(true);
       } catch (e: any) {
@@ -194,7 +220,7 @@ export default function InspiracionPage() {
     setSearching(true);
     setEphemeral(null);
     try {
-      const result = await runScan(username, false);
+      const result = await runScan(username, false, windowDays);
       setEphemeral(result.posts || []);
       setEphemeralUser(result.username);
       if ((result.posts || []).length === 0) toast(result.error || 'No se encontraron reels', 'info');
@@ -269,6 +295,10 @@ export default function InspiracionPage() {
     </article>
   );
 
+  const recentSaved = saved.filter((v) => withinWindow(v.posted_at, windowDays));
+  const hiddenOld = saved.length - recentSaved.length;
+  const visibleSaved = showOld ? saved : recentSaved;
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -295,10 +325,25 @@ export default function InspiracionPage() {
             <h2 className={styles.sectionTitle}>Tus referentes</h2>
             <p className={styles.sectionSub}>Cuentas que escaneás seguido. Un banger = supera el umbral viral de su propia cuenta.</p>
           </div>
-          <button className={styles.scanBtn} onClick={scanReferents} disabled={scanning || referents.length === 0}>
-            <RefreshCw size={15} className={scanning ? styles.spin : ''} />
-            {scanning ? 'Escaneando…' : 'Escanear referentes'}
-          </button>
+          <div className={styles.scanControls}>
+            <div className={styles.windowPicker} role="group" aria-label="Antigüedad máxima de los videos">
+              {WINDOWS.map((d) => (
+                <button
+                  key={d}
+                  className={windowDays === d ? styles.windowActive : ''}
+                  onClick={() => changeWindow(d)}
+                  disabled={scanning || searching}
+                  aria-pressed={windowDays === d}
+                >
+                  {d} días
+                </button>
+              ))}
+            </div>
+            <button className={styles.scanBtn} onClick={scanReferents} disabled={scanning || referents.length === 0}>
+              <RefreshCw size={15} className={scanning ? styles.spin : ''} />
+              {scanning ? 'Escaneando…' : 'Escanear referentes'}
+            </button>
+          </div>
         </div>
 
         {scanStatus && <div className={styles.scanStatus}><Loader2 size={14} className={styles.spin} /> {scanStatus}</div>}
@@ -347,7 +392,7 @@ export default function InspiracionPage() {
 
         {searching && (
           <div className={styles.scanStatus}>
-            <Loader2 size={14} className={styles.spin} /> Trayendo los últimos reels y calculando viralidad (~1 min)…
+            <Loader2 size={14} className={styles.spin} /> Trayendo los reels de los últimos {windowDays} días y calculando viralidad (~1 min)…
           </div>
         )}
 
@@ -364,18 +409,28 @@ export default function InspiracionPage() {
       {/* ---- Bangers guardados ---- */}
       <section className="glass-panel">
         <h2 className={styles.sectionTitle}>Bangers detectados</h2>
-        <p className={styles.sectionSub}>Videos que superaron el umbral viral (score ≥ 60) en los escaneos de tus referentes.</p>
+        <p className={styles.sectionSub}>
+          Videos que superaron el umbral viral (score ≥ 60) en los escaneos de tus referentes, publicados en los últimos {windowDays} días.
+          {hiddenOld > 0 && (
+            <>
+              {' '}
+              <button className={styles.linkBtn} onClick={() => setShowOld((v) => !v)}>
+                {showOld ? 'Ocultar los más viejos' : `Ver ${hiddenOld} más viejo${hiddenOld === 1 ? '' : 's'}`}
+              </button>
+            </>
+          )}
+        </p>
 
         {loadingSaved ? (
           <div className={styles.grid}>
             {[0, 1, 2].map((i) => <div key={i} className={styles.cardSkeleton} />)}
           </div>
-        ) : saved.length === 0 ? (
+        ) : visibleSaved.length === 0 ? (
           <div className={styles.empty}>
             Todavía no hay bangers guardados. Agregá referentes arriba y tocá <strong>Escanear referentes</strong>: cada video que esté rompiendo su propia mediana va a aparecer acá.
           </div>
         ) : (
-          <div className={styles.grid}>{saved.map((v) => renderCard(v, false))}</div>
+          <div className={styles.grid}>{visibleSaved.map((v) => renderCard(v, false))}</div>
         )}
       </section>
 
