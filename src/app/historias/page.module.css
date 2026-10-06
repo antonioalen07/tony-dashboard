@@ -578,3 +578,33 @@
   margin-top: 0.5rem;
 }
 .orderRow .ghostBtnSm { flex: 1; justify-content: center; }
+
+/* ---- Bibliotecas plegables (fondo / Drive) ---- */
+.collapseHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.7rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.collapseHead:hover { background: var(--hover-bg); }
+.collapseHead svg { transition: transform 0.18s ease; color: var(--text-secondary); }
+.chevOpen { transform: rotate(180deg); }
+.collapseCount {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.collapseHead + .assetGrid { margin-top: 0.5rem; }

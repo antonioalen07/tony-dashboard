@@ -16,6 +16,15 @@ import type {
 export const CANVAS_W = 1080;
 export const CANVAS_H = 1920;
 
+/**
+ * Medidas del resaltado, en fracción del cuerpo de la letra. Las usan el
+ * export y la vista previa del editor, así el fondo de texto se ve igual en
+ * los dos: una "píldora" redondeada por renglón, como el de Instagram.
+ * Antes el export pintaba rectángulos de esquinas rectas.
+ */
+export const HL_LINE = { padX: 0.18, padY: 0.1, radius: 0.24 };
+export const HL_WORD = { padX: 0.14, padY: 0.08, radius: 0.2 };
+
 /** Fuente disponible en el editor: `family` es lo que se persiste; `label` lo que se muestra. */
 export interface StoryFont {
   label: string;
@@ -56,6 +65,25 @@ export function proxied(
   if (!/^https?:\/\//i.test(url)) return url; // data:, blob:, relativas
   if (url.startsWith('https://wsrv.nl/')) return url;
   return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=${w}&h=${h}&fit=${fit}&output=png`;
+}
+
+/**
+ * Fondo a resolución COMPLETA. Antes pasaba por el proxy con w=1080&h=1920&
+ * fit=cover: llegaba ya recortado y achicado, así que cualquier zoom agrandaba
+ * una imagen chica (pérdida de calidad) y el sobrante para reencuadrar ya no
+ * existía. Primero se intenta el original directo (sin recomprimir nada); si el
+ * navegador no lo decodifica (HEIC del iPhone en Chrome) o no hay CORS, se
+ * pide al proxy convertido pero sin recortar ni achicar de más.
+ */
+async function loadFullImage(url: string): Promise<HTMLImageElement> {
+  if (!/^https?:\/\//i.test(url)) return loadImage(url);
+  try {
+    return await loadImage(url);
+  } catch {
+    return loadImage(
+      `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=4096&h=4096&fit=inside&we&output=jpg&q=95`,
+    );
+  }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -130,8 +158,8 @@ function drawWords(
   const spaceWidth = ctx.measureText(' ').width;
   const uy = y + size * 1.04;
   const uw = Math.max(2, size * 0.06);
-  const hlPadX = size * 0.14;
-  const hlPadY = size * 0.08;
+  const hlPadX = size * HL_WORD.padX;
+  const hlPadY = size * HL_WORD.padY;
   ctx.textAlign = 'left';
 
   let x = startX;
@@ -145,7 +173,8 @@ function drawWords(
     // Resaltado por palabra (rectángulo detrás de la palabra).
     if (layer.highlight && highlightSet.size && highlightSet.has(clean)) {
       ctx.fillStyle = layer.highlight;
-      ctx.fillRect(x - hlPadX, y - hlPadY, w + hlPadX * 2, size + hlPadY * 2);
+      roundRectPath(ctx, x - hlPadX, y - hlPadY, w + hlPadX * 2, size + hlPadY * 2, size * HL_WORD.radius);
+      ctx.fill();
     }
     ctx.fillStyle = layer.color;
     ctx.fillText(word, x, y);
@@ -173,8 +202,8 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
   const lines = wrapLines(ctx, layer.text || '', maxWidth);
   const underlineSet = new Set((layer.underlineWords ?? []).map(cleanWord).filter(Boolean));
   const highlightSet = new Set((layer.highlightWords ?? []).map(cleanWord).filter(Boolean));
-  const padX = size * 0.18;
-  const padY = size * 0.1;
+  const padX = size * HL_LINE.padX;
+  const padY = size * HL_LINE.padY;
 
   // La caja se ancla por su CENTRO en anchorX; la alineación acomoda el texto
   // DENTRO de la caja (no mueve el bloque al lado opuesto).
@@ -205,7 +234,8 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: StoryTextLayer): void {
       const hlLeft = justify ? boxLeft : startX;
       const hlW = justify ? boxW : lineWidth;
       ctx.fillStyle = layer.highlight;
-      ctx.fillRect(hlLeft - padX, y - padY, hlW + padX * 2, size + padY * 2);
+      roundRectPath(ctx, hlLeft - padX, y - padY, hlW + padX * 2, size + padY * 2, size * HL_LINE.radius);
+      ctx.fill();
     }
 
     drawWords(ctx, line, startX, y, extraGap, underlineSet, highlightSet, layer);
@@ -370,7 +400,7 @@ export async function renderSlideToCanvas(
 
   if (bgUrl) {
     try {
-      const img = await loadImage(proxied(bgUrl));
+      const img = await loadFullImage(bgUrl);
       const brightness = slide.bg_brightness ?? 1;
       const s = slide.bg_scale ?? 1;
       const panX = slide.bg_pan_x ?? 0;
@@ -391,7 +421,7 @@ export async function renderSlideToCanvas(
   // Precarga las imágenes de los overlays (para poder dibujar en orden de z).
   const overlays = slide.overlays ?? [];
   const overlayImgs = await Promise.all(
-    overlays.map((ov) => loadImage(proxied(ov.src, 1000, 1000, 'inside')).catch(() => null)),
+    overlays.map((ov) => loadImage(proxied(ov.src, 2048, 2048, 'inside')).catch(() => null)),
   );
 
   // Lista unificada de elementos, ordenada por z (default por tipo: overlays<texto<trazos).

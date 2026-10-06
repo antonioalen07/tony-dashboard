@@ -9,14 +9,14 @@ import {
   Sun, Shuffle, Upload, Pencil, Undo2, Images, MousePointer2, Sparkles,
   BringToFront, SendToBack, Magnet, Grid3x3, Spline,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,
-  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, ChevronDown,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import MigrationBanner from '@/components/MigrationBanner';
 import DrivePicker from '@/components/DrivePicker';
 import {
-  renderSlideToPng, proxied, strokePathD, STORY_FONTS, CANVAS_W, CANVAS_H,
+  renderSlideToPng, proxied, strokePathD, STORY_FONTS, CANVAS_W, CANVAS_H, HL_LINE, HL_WORD,
 } from '@/lib/storyRender';
 import {
   SAFE_X, SAFE_TOP, SAFE_BOTTOM, canvasTargets, computeSnap, rectToBox, boxAt,
@@ -37,6 +37,34 @@ const PREVIEW_H = PREVIEW_W * (CANVAS_H / CANVAS_W);
 const SCALE = PREVIEW_W / CANVAS_W;
 /** Radio de imantación del snap, en px del preview. */
 const SNAP_PX = 7;
+
+/** Tamaño natural (o proporcional) de una imagen de fondo. */
+type Dims = { w: number; h: number };
+
+/**
+ * Cuánto mide la imagen de fondo en modo "cover", como fracción del lienzo:
+ * una foto horizontal cubre el alto y le SOBRA ancho (wf > 1). Ese sobrante
+ * es el que se puede recorrer arrastrando, aun sin zoom.
+ */
+const coverFrac = (d: Dims | undefined) => {
+  if (!d || !d.w || !d.h) return { wf: 1, hf: 1 };
+  const a = d.w / d.h;
+  const A = CANVAS_W / CANVAS_H;
+  return a > A ? { wf: a / A, hf: 1 } : { wf: 1, hf: A / a };
+};
+
+/**
+ * Margen de desplazamiento del fondo (fracción del lienzo, a cada lado del
+ * centro) para un zoom dado. Antes era sólo (zoom-1)/2: con zoom 1 no se podía
+ * mover nada aunque la foto tuviera mucha imagen escondida a los costados.
+ */
+const panRange = (d: Dims | undefined, scale: number) => {
+  const { wf, hf } = coverFrac(d);
+  return { rx: Math.max(0, (wf * scale - 1) / 2), ry: Math.max(0, (hf * scale - 1) / 2) };
+};
+
+/** Colapsables de la columna derecha que se recuerdan entre visitas. */
+const SECTIONS_KEY = 'bako_historias_sections';
 
 /** Slide editable: extiende StorySlide con la URL de fondo resuelta (persistida en el JSONB). */
 interface EditableSlide extends StorySlide {
@@ -216,6 +244,24 @@ export default function HistoriasPage() {
     targets: SnapTargets;
   } | null>(null);
   const bgDragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  // Tamaño de cada fondo (por URL): define cuánto se puede arrastrar el encuadre.
+  const [bgDims, setBgDims] = useState<Record<string, Dims>>({});
+  const bgDimsRef = useRef(bgDims);
+  useEffect(() => { bgDimsRef.current = bgDims; }, [bgDims]);
+  // Bibliotecas plegables (cerradas por defecto: lo primero son los textos).
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SECTIONS_KEY);
+      if (raw) setOpenSections(JSON.parse(raw));
+    } catch { /* storage bloqueado: quedan cerradas */ }
+  }, []);
+  const toggleSection = (key: string) =>
+    setOpenSections((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch { /* no-op */ }
+      return next;
+    });
   const bgFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
 
@@ -328,6 +374,7 @@ export default function HistoriasPage() {
       ),
     ), []);
 
+  const resolveBgRef = useRef<(slide: EditableSlide) => string>(() => '');
   const resolveBg = useCallback(
     (slide: EditableSlide): string => {
       if (slide.bg_url) return slide.bg_url;
@@ -339,6 +386,7 @@ export default function HistoriasPage() {
     },
     [assets],
   );
+  useEffect(() => { resolveBgRef.current = resolveBg; }, [resolveBg]);
 
   // ── CRUD de proyectos ───────────────────────────────────────────────────
   const openProject = (p: StoryProject) => {
@@ -719,12 +767,12 @@ export default function HistoriasPage() {
     if (bgDragRef.current && previewRef.current) {
       const rect = previewRef.current.getBoundingClientRect();
       const s = current.bg_scale ?? 1;
-      const range = Math.max(0, (s - 1) / 2);
+      const { rx, ry } = panRange(bgDims[resolveBg(current)], s);
       const dx = (e.clientX - bgDragRef.current.sx) / rect.width;
       const dy = (e.clientY - bgDragRef.current.sy) / rect.height;
       patchSlide(slideIdx, {
-        bg_pan_x: clamp(bgDragRef.current.px + dx, -range, range),
-        bg_pan_y: clamp(bgDragRef.current.py + dy, -range, range),
+        bg_pan_x: clamp(bgDragRef.current.px + dx, -rx, rx),
+        bg_pan_y: clamp(bgDragRef.current.py + dy, -ry, ry),
       });
       return;
     }
@@ -881,12 +929,12 @@ export default function HistoriasPage() {
           prev.map((s, i) => {
             if (i !== slideIdx || !(s.bg_asset_id || (s as EditableSlide).bg_url)) return s;
             const ns = clamp((s.bg_scale ?? 1) * factor, 1, 4);
-            const range = Math.max(0, (ns - 1) / 2);
+            const { rx, ry } = panRange(bgDimsRef.current[resolveBgRef.current(s)], ns);
             return {
               ...s,
               bg_scale: ns,
-              bg_pan_x: clamp(s.bg_pan_x ?? 0, -range, range),
-              bg_pan_y: clamp(s.bg_pan_y ?? 0, -range, range),
+              bg_pan_x: clamp(s.bg_pan_x ?? 0, -rx, rx),
+              bg_pan_y: clamp(s.bg_pan_y ?? 0, -ry, ry),
             };
           }),
         );
@@ -927,13 +975,35 @@ export default function HistoriasPage() {
     { v: 'justify', icon: <AlignJustify size={15} />, title: 'Justificado' },
   ];
 
-  /** Texto de una capa para el preview: respeta \n y subraya/resalta palabras concretas. */
+  /**
+   * Texto de una capa para el preview: respeta \n y subraya/resalta palabras.
+   * El resaltado va POR LÍNEA (una "píldora" redondeada por renglón, como el
+   * fondo de texto de Instagram) con las mismas medidas que dibuja el export.
+   * Padding + margen negativo: el fondo se agranda sin mover ni re-cortar el texto.
+   */
   const renderLayerText = (l: StoryTextLayer): React.ReactNode => {
     const uSet = new Set((l.underlineWords ?? []).map(cleanWord).filter(Boolean));
     const hSet = new Set((l.highlightWords ?? []).map(cleanWord).filter(Boolean));
     const lines = (l.text || ' ').split('\n');
+    const px = l.size * SCALE;
+    const pill = (padX: number, padY: number, radius: number, color: string): React.CSSProperties => ({
+      background: color,
+      padding: `${padY * px}px ${padX * px}px`,
+      margin: `0 ${-padX * px}px`,
+      borderRadius: `${radius * px}px`,
+      boxDecorationBreak: 'clone',
+      WebkitBoxDecorationBreak: 'clone',
+    });
     return lines.map((line, li) => {
-      if (!uSet.size && !hSet.size) return <span key={li} className={styles.textLine}>{line || ' '}</span>;
+      if (!uSet.size && !hSet.size) {
+        return (
+          <span key={li} className={styles.textLine}>
+            {l.highlight && line.trim()
+              ? <span style={pill(HL_LINE.padX, HL_LINE.padY, HL_LINE.radius, l.highlight)}>{line}</span>
+              : line || ' '}
+          </span>
+        );
+      }
       const words = line.split(' ');
       return (
         <span key={li} className={styles.textLine}>
@@ -946,9 +1016,7 @@ export default function HistoriasPage() {
                 key={`w${wi}`}
                 style={{
                   textDecoration: u ? 'underline' : undefined,
-                  background: h ? l.highlight! : undefined,
-                  padding: h ? '0 0.12em' : undefined,
-                  borderRadius: h ? '3px' : undefined,
+                  ...(h ? pill(HL_WORD.padX, HL_WORD.padY, HL_WORD.radius, l.highlight!) : {}),
                 }}
               >
                 {word}
@@ -1147,15 +1215,42 @@ export default function HistoriasPage() {
                 onClick={() => { if (mode === 'select') { setLayerIdx(null); setOverlayIdx(null); } }}
               >
                 {resolveBg(current) ? (
+                  // La imagen entra ENTERA (sin el recorte 9:16 del proxy) y a buena
+                  // resolución: así se ve nítida en pantallas retina y el sobrante
+                  // queda disponible para arrastrar el encuadre. Mismo modelo que
+                  // el export: centro desplazado por pan, tamaño cover × zoom.
                   <img
-                    src={proxied(resolveBg(current), PREVIEW_W, Math.round(PREVIEW_H))}
+                    src={proxied(resolveBg(current), 1440, 1440, 'inside')}
                     alt=""
                     className={styles.previewBg}
-                    style={{
-                      filter: bright !== 1 ? `brightness(${bright})` : undefined,
-                      transform: `translate(${(current.bg_pan_x ?? 0) * 100}%, ${(current.bg_pan_y ?? 0) * 100}%) scale(${current.bg_scale ?? 1})`,
-                      transformOrigin: 'center',
+                    onLoad={(e) => {
+                      const url = resolveBg(current);
+                      const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+                      if (w && h && (bgDims[url]?.w !== w || bgDims[url]?.h !== h)) {
+                        setBgDims((prev) => ({ ...prev, [url]: { w, h } }));
+                      }
                     }}
+                    style={(() => {
+                      const dims = bgDims[resolveBg(current)];
+                      const filter = bright !== 1 ? `brightness(${bright})` : undefined;
+                      const sc = current.bg_scale ?? 1;
+                      if (!dims) {
+                        return { filter, transform: `scale(${sc})`, transformOrigin: 'center' };
+                      }
+                      const { wf, hf } = coverFrac(dims);
+                      return {
+                        filter,
+                        inset: 'auto',
+                        left: `calc(50% + ${(current.bg_pan_x ?? 0) * 100}%)`,
+                        top: `calc(50% + ${(current.bg_pan_y ?? 0) * 100}%)`,
+                        width: `${wf * 100}%`,
+                        height: `${hf * 100}%`,
+                        maxWidth: 'none',
+                        objectFit: 'fill' as const,
+                        transform: `translate(-50%, -50%) scale(${sc})`,
+                        transformOrigin: 'center',
+                      };
+                    })()}
                     referrerPolicy="no-referrer"
                     draggable={false}
                   />
@@ -1223,8 +1318,6 @@ export default function HistoriasPage() {
                       color: l.color,
                       textAlign: l.align,
                       textDecoration: l.underline ? 'underline' : 'none',
-                      background: l.highlight && !(l.highlightWords?.length) ? l.highlight : 'transparent',
-                      padding: l.highlight && !(l.highlightWords?.length) ? `${l.size * SCALE * 0.1}px ${l.size * SCALE * 0.18}px` : 0,
                       lineHeight: l.lineHeight ?? 1.25,
                       zIndex: l.z ?? 20,
                       pointerEvents: mode === 'draw' ? 'none' : 'auto',
@@ -1346,182 +1439,6 @@ export default function HistoriasPage() {
 
             {/* Inspector */}
             <div className={styles.inspector}>
-              {/* Fondo */}
-              <div className={styles.inspectorBlock}>
-                <h3 className={styles.inspectorTitle}><ImagePlus size={15} /> Fondo del slide {slideIdx + 1}</h3>
-                <div className={styles.bgRow}>
-                  <input
-                    className={styles.textInput}
-                    value={bgInput}
-                    onChange={(e) => setBgInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && applyBgUrl()}
-                    placeholder="Pegá una URL de imagen…"
-                  />
-                  <button className={styles.ghostBtn} onClick={applyBgUrl} disabled={!bgInput.trim()}>
-                    Aplicar
-                  </button>
-                </div>
-
-                <div className={styles.bgActions}>
-                  <button className={styles.ghostBtnSm} onClick={() => bgFileRef.current?.click()} disabled={uploadingBg}>
-                    {uploadingBg ? <Loader2 size={13} className={styles.spin} /> : <Upload size={13} />}
-                    Subir de la PC
-                  </button>
-                  <button className={styles.ghostBtnSm} onClick={randomBg} disabled={!assets.length}>
-                    <Shuffle size={13} /> Aleatorio
-                  </button>
-                  {resolveBg(current) && (
-                    <button className={styles.ghostBtnSm} onClick={clearBg}>
-                      <X size={13} /> Quitar
-                    </button>
-                  )}
-                </div>
-                <input ref={bgFileRef} type="file" accept="image/*" hidden onChange={onBgFile} />
-
-                {/* Brillo */}
-                <label className={styles.control}>
-                  <span><Sun size={12} /> Brillo del fondo · {Math.round(bright * 100)}%</span>
-                  <input
-                    type="range"
-                    min={30}
-                    max={170}
-                    value={Math.round(bright * 100)}
-                    disabled={!resolveBg(current)}
-                    onChange={(e) => patchSlide(slideIdx, { bg_brightness: Number(e.target.value) / 100 })}
-                  />
-                </label>
-
-                {assets.length > 0 && (
-                  <>
-                    <p className={styles.pickerLabel}>O elegí de tu biblioteca:</p>
-                    <div className={styles.assetGrid}>
-                      {assets.map((a) => (
-                        <button
-                          key={a.id}
-                          className={`${styles.assetThumb} ${current.bg_asset_id === a.id ? styles.assetThumbActive : ''}`}
-                          onClick={() => pickAsset(a)}
-                          style={{ backgroundImage: `url(${proxied(a.public_url, 80, 142)})` }}
-                          title={a.filename ?? ''}
-                          aria-label={`Usar ${a.filename ?? 'imagen'}`}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-                <p className={styles.pickerLabel}>O importá desde Google Drive:</p>
-                <DrivePicker
-                  onPicked={(a) => {
-                    setAssets((prev) => (prev.some((x) => x.id === a.id) ? prev : [a, ...prev]));
-                    pickAsset(a);
-                  }}
-                />
-              </div>
-
-              {/* Imágenes superpuestas */}
-              <div className={styles.inspectorBlock}>
-                <div className={styles.inspectorHead}>
-                  <h3 className={styles.inspectorTitle}><Images size={15} /> Imágenes superpuestas</h3>
-                  <button className={styles.ghostBtnSm} onClick={() => setShowOverlayPicker((v) => !v)}>
-                    <Plus size={13} /> Agregar
-                  </button>
-                </div>
-                <input ref={overlayFileRef} type="file" accept="image/*" hidden onChange={onOverlayFile} />
-
-                {showOverlayPicker && (
-                  <div className={styles.overlayPicker}>
-                    <button className={styles.ghostBtnSm} onClick={() => overlayFileRef.current?.click()}>
-                      <Upload size={13} /> Subir de la PC
-                    </button>
-                    {assets.length > 0 ? (
-                      <>
-                        <p className={styles.pickerLabel}>O elegí de tu biblioteca para superponer:</p>
-                        <div className={styles.assetGrid}>
-                          {assets.map((a) => (
-                            <button
-                              key={a.id}
-                              className={styles.assetThumb}
-                              onClick={() => addOverlay(a.public_url)}
-                              style={{ backgroundImage: `url(${proxied(a.public_url, 80, 80)})` }}
-                              title={`Superponer ${a.filename ?? 'imagen'}`}
-                              aria-label={`Superponer ${a.filename ?? 'imagen'}`}
-                            />
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <p className={styles.muted}>Subí una imagen para superponerla.</p>
-                    )}
-                  </div>
-                )}
-
-                {(current.overlays?.length ?? 0) === 0 ? (
-                  <p className={styles.muted}>Sin imágenes superpuestas. Usá <strong>Agregar</strong>; después arrastralas en el lienzo.</p>
-                ) : (
-                  <div className={styles.layerList}>
-                    {(current.overlays ?? []).map((ov, j) => (
-                      <div
-                        key={j}
-                        className={`${styles.layerItem} ${j === overlayIdx ? styles.layerItemActive : ''}`}
-                        onClick={() => { setOverlayIdx(j); setLayerIdx(null); setMode('select'); }}
-                      >
-                        <span className={styles.layerItemText}>Imagen {j + 1}</span>
-                        <button onClick={(e) => { e.stopPropagation(); removeOverlay(j); }} aria-label="Eliminar imagen">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {selectedOverlay && (
-                  <>
-                    <p className={styles.pickerLabel}>Forma:</p>
-                    <div className={styles.toggleGroup}>
-                      {overlayShapes.map((sh) => (
-                        <button
-                          key={sh.label}
-                          className={styles.shapeBtn}
-                          onClick={() => setOverlayAspect(sh.ratioWH(), sh.radius ?? 0)}
-                        >
-                          {sh.label}
-                        </button>
-                      ))}
-                    </div>
-                    <label className={styles.control}>
-                      <span>Tamaño · {Math.round(selectedOverlay.w * 100)}%</span>
-                      <input
-                        type="range"
-                        min={10}
-                        max={100}
-                        value={Math.round(selectedOverlay.w * 100)}
-                        onChange={(e) => setOverlayWidth(Number(e.target.value) / 100)}
-                      />
-                    </label>
-                    <label className={styles.control}>
-                      <span>Redondez · {Math.round((selectedOverlay.radius ?? 0) * 200)}%</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={50}
-                        value={Math.round((selectedOverlay.radius ?? 0) * 100)}
-                        onChange={(e) =>
-                          overlayIdx != null && patchOverlay(slideIdx, overlayIdx, { radius: Number(e.target.value) / 100 })
-                        }
-                      />
-                    </label>
-                    {alignRow}
-                    <div className={styles.orderRow}>
-                      <button className={styles.ghostBtnSm} onClick={overlayToFront}>
-                        <BringToFront size={13} /> Al frente
-                      </button>
-                      <button className={styles.ghostBtnSm} onClick={overlayToBack}>
-                        <SendToBack size={13} /> Al fondo
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
               {/* Capas de texto */}
               <div className={styles.inspectorBlock}>
                 <div className={styles.inspectorHead}>
@@ -1727,6 +1644,207 @@ export default function HistoriasPage() {
                   </div>
                 )}
               </div>
+
+              {/* Fondo */}
+              <div className={styles.inspectorBlock}>
+                <h3 className={styles.inspectorTitle}><ImagePlus size={15} /> Fondo del slide {slideIdx + 1}</h3>
+                <div className={styles.bgRow}>
+                  <input
+                    className={styles.textInput}
+                    value={bgInput}
+                    onChange={(e) => setBgInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && applyBgUrl()}
+                    placeholder="Pegá una URL de imagen…"
+                  />
+                  <button className={styles.ghostBtn} onClick={applyBgUrl} disabled={!bgInput.trim()}>
+                    Aplicar
+                  </button>
+                </div>
+
+                <div className={styles.bgActions}>
+                  <button className={styles.ghostBtnSm} onClick={() => bgFileRef.current?.click()} disabled={uploadingBg}>
+                    {uploadingBg ? <Loader2 size={13} className={styles.spin} /> : <Upload size={13} />}
+                    Subir de la PC
+                  </button>
+                  <button className={styles.ghostBtnSm} onClick={randomBg} disabled={!assets.length}>
+                    <Shuffle size={13} /> Aleatorio
+                  </button>
+                  {resolveBg(current) && (
+                    <button className={styles.ghostBtnSm} onClick={clearBg}>
+                      <X size={13} /> Quitar
+                    </button>
+                  )}
+                </div>
+                <input ref={bgFileRef} type="file" accept="image/*" hidden onChange={onBgFile} />
+
+                {/* Brillo */}
+                <label className={styles.control}>
+                  <span><Sun size={12} /> Brillo del fondo · {Math.round(bright * 100)}%</span>
+                  <input
+                    type="range"
+                    min={30}
+                    max={170}
+                    value={Math.round(bright * 100)}
+                    disabled={!resolveBg(current)}
+                    onChange={(e) => patchSlide(slideIdx, { bg_brightness: Number(e.target.value) / 100 })}
+                  />
+                </label>
+
+                {assets.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.collapseHead}
+                      onClick={() => toggleSection('library')}
+                      aria-expanded={!!openSections.library}
+                    >
+                      <ChevronDown size={14} className={openSections.library ? styles.chevOpen : ''} />
+                      Tu biblioteca <span className={styles.collapseCount}>{assets.length}</span>
+                    </button>
+                    {openSections.library && (
+                    <div className={styles.assetGrid}>
+                      {assets.map((a) => (
+                        <button
+                          key={a.id}
+                          className={`${styles.assetThumb} ${current.bg_asset_id === a.id ? styles.assetThumbActive : ''}`}
+                          onClick={() => pickAsset(a)}
+                          style={{ backgroundImage: `url(${proxied(a.public_url, 80, 142)})` }}
+                          title={a.filename ?? ''}
+                          aria-label={`Usar ${a.filename ?? 'imagen'}`}
+                        />
+                      ))}
+                    </div>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  className={styles.collapseHead}
+                  onClick={() => toggleSection('drive')}
+                  aria-expanded={!!openSections.drive}
+                >
+                  <ChevronDown size={14} className={openSections.drive ? styles.chevOpen : ''} />
+                  Google Drive
+                </button>
+                {openSections.drive && (
+                  <DrivePicker
+                    onPicked={(a) => {
+                      setAssets((prev) => (prev.some((x) => x.id === a.id) ? prev : [a, ...prev]));
+                      pickAsset(a);
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Imágenes superpuestas */}
+              <div className={styles.inspectorBlock}>
+                <div className={styles.inspectorHead}>
+                  <h3 className={styles.inspectorTitle}><Images size={15} /> Imágenes superpuestas</h3>
+                  <button
+                    className={styles.ghostBtnSm}
+                    onClick={() => setShowOverlayPicker((v) => !v)}
+                    aria-expanded={showOverlayPicker}
+                  >
+                    {showOverlayPicker ? <><X size={13} /> Cerrar</> : <><Plus size={13} /> Agregar</>}
+                  </button>
+                </div>
+                <input ref={overlayFileRef} type="file" accept="image/*" hidden onChange={onOverlayFile} />
+
+                {showOverlayPicker && (
+                  <div className={styles.overlayPicker}>
+                    <button className={styles.ghostBtnSm} onClick={() => overlayFileRef.current?.click()}>
+                      <Upload size={13} /> Subir de la PC
+                    </button>
+                    {assets.length > 0 ? (
+                      <>
+                        <p className={styles.pickerLabel}>O elegí de tu biblioteca para superponer:</p>
+                        <div className={styles.assetGrid}>
+                          {assets.map((a) => (
+                            <button
+                              key={a.id}
+                              className={styles.assetThumb}
+                              onClick={() => addOverlay(a.public_url)}
+                              style={{ backgroundImage: `url(${proxied(a.public_url, 80, 80)})` }}
+                              title={`Superponer ${a.filename ?? 'imagen'}`}
+                              aria-label={`Superponer ${a.filename ?? 'imagen'}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p className={styles.muted}>Subí una imagen para superponerla.</p>
+                    )}
+                  </div>
+                )}
+
+                {(current.overlays?.length ?? 0) === 0 ? (
+                  <p className={styles.muted}>Sin imágenes superpuestas. Usá <strong>Agregar</strong>; después arrastralas en el lienzo.</p>
+                ) : (
+                  <div className={styles.layerList}>
+                    {(current.overlays ?? []).map((ov, j) => (
+                      <div
+                        key={j}
+                        className={`${styles.layerItem} ${j === overlayIdx ? styles.layerItemActive : ''}`}
+                        onClick={() => { setOverlayIdx(j); setLayerIdx(null); setMode('select'); }}
+                      >
+                        <span className={styles.layerItemText}>Imagen {j + 1}</span>
+                        <button onClick={(e) => { e.stopPropagation(); removeOverlay(j); }} aria-label="Eliminar imagen">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedOverlay && (
+                  <>
+                    <p className={styles.pickerLabel}>Forma:</p>
+                    <div className={styles.toggleGroup}>
+                      {overlayShapes.map((sh) => (
+                        <button
+                          key={sh.label}
+                          className={styles.shapeBtn}
+                          onClick={() => setOverlayAspect(sh.ratioWH(), sh.radius ?? 0)}
+                        >
+                          {sh.label}
+                        </button>
+                      ))}
+                    </div>
+                    <label className={styles.control}>
+                      <span>Tamaño · {Math.round(selectedOverlay.w * 100)}%</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        value={Math.round(selectedOverlay.w * 100)}
+                        onChange={(e) => setOverlayWidth(Number(e.target.value) / 100)}
+                      />
+                    </label>
+                    <label className={styles.control}>
+                      <span>Redondez · {Math.round((selectedOverlay.radius ?? 0) * 200)}%</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={50}
+                        value={Math.round((selectedOverlay.radius ?? 0) * 100)}
+                        onChange={(e) =>
+                          overlayIdx != null && patchOverlay(slideIdx, overlayIdx, { radius: Number(e.target.value) / 100 })
+                        }
+                      />
+                    </label>
+                    {alignRow}
+                    <div className={styles.orderRow}>
+                      <button className={styles.ghostBtnSm} onClick={overlayToFront}>
+                        <BringToFront size={13} /> Al frente
+                      </button>
+                      <button className={styles.ghostBtnSm} onClick={overlayToBack}>
+                        <SendToBack size={13} /> Al fondo
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
             </div>
           </div>
         </section>
