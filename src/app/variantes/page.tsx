@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Wand2, Upload, Film, Link2, Loader2, Download, CalendarPlus,
   RefreshCw, X, Check, Search, ExternalLink, Video, AlertCircle,
-  Type, FlipHorizontal, Move, CopyCheck, ChevronDown,
+  Type, FlipHorizontal, Move, CopyCheck, ChevronDown, Trash2,
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
+import StorageMeter, { fmtBytes } from '@/components/StorageMeter';
 import { supabase } from '@/utils/supabase';
 import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { compressVideo } from '@/lib/compressVideo';
@@ -190,6 +191,10 @@ export default function VariantesPage() {
   const [stalled, setStalled] = useState(false);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+  // Cambia para que el medidor de Storage vuelva a medir.
+  const [storageKey, setStorageKey] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -318,7 +323,10 @@ export default function VariantesPage() {
     const tick = async () => {
       const j = await fetchJobState(activeJobId);
       if (cancelled) return;
-      if (j && (j.status === 'done' || j.status === 'failed')) return; // terminal → parar
+      if (j && (j.status === 'done' || j.status === 'failed')) { // terminal → parar
+        setStorageKey((k) => k + 1);
+        return;
+      }
       if (Date.now() > deadline) { setStalled(true); return; }
       timer = setTimeout(tick, POLL_MS);
     };
@@ -611,6 +619,63 @@ export default function VariantesPage() {
     }
   };
 
+  // ── Borrar variantes (filas + archivos del Storage) ───────────────────────
+  const deleteVariant = async (v: VariantRow, index: number) => {
+    const queued = sentIds.has(v.id);
+    const msg = queued
+      ? `¿Borrar la variante #${index + 1}? Está en el calendario: si todavía no se publicó, se cancela esa publicación. Lo ya publicado queda en el historial.`
+      : `¿Borrar la variante #${index + 1}? Se elimina el video y libera espacio. No se puede deshacer.`;
+    if (!window.confirm(msg)) return;
+    setDeletingId(v.id);
+    try {
+      const res = await fetch(`/api/variants?id=${v.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || 'No se pudo borrar la variante', 'error'); return; }
+      setVariants((prev) => prev.filter((x) => x.id !== v.id));
+      setSentIds((prev) => { const n = new Set(prev); n.delete(v.id); return n; });
+      setCaptions((prev) => { const n = { ...prev }; delete n[v.id]; return n; });
+      toast(
+        `Variante borrada · ${fmtBytes(data.freedBytes || 0)} liberados`
+          + (data.canceledPosts ? ' · publicación pendiente cancelada' : ''),
+        'success',
+      );
+      setStorageKey((k) => k + 1);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const deleteGeneration = async () => {
+    if (!activeJobId) return;
+    const n = variants.length;
+    const queued = variants.filter((v) => sentIds.has(v.id)).length;
+    const msg = `¿Borrar esta generación completa? Se eliminan ${n} variante${n === 1 ? '' : 's'}, sus textos y el video base (si no lo usa otra generación).`
+      + (queued ? ` ${queued} está${queued === 1 ? '' : 'n'} en el calendario: lo pendiente se cancela y lo ya publicado queda en el historial.` : '')
+      + ' No se puede deshacer.';
+    if (!window.confirm(msg)) return;
+    setDeletingJob(true);
+    try {
+      const res = await fetch(`/api/variants?jobId=${activeJobId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || 'No se pudo borrar la generación', 'error'); return; }
+      if (data.deletedSource && selectedAsset?.id === job?.source_asset_id) {
+        setSelectedAsset(null);
+        setVideoMeta(null);
+      }
+      setActiveJobId(null);
+      setJob(null);
+      setVariants([]);
+      setSentIds(new Set());
+      setCaptions({});
+      localStorage.setItem(LAST_JOB_KEY, '');
+      localStorage.removeItem(CAPTIONS_KEY);
+      toast(`Generación borrada · ${fmtBytes(data.freedBytes || 0)} liberados`, 'success');
+      setStorageKey((k) => k + 1);
+    } finally {
+      setDeletingJob(false);
+    }
+  };
+
   const resetAll = () => {
     setSelectedAsset(null);
     setActiveJobId(null);
@@ -724,6 +789,8 @@ export default function VariantesPage() {
           para testear cuál rinde mejor, y mandalas al calendario como reels de prueba.
         </p>
       </header>
+
+      <StorageMeter refreshKey={storageKey} />
 
       {migrationNeeded && (
         <div className={styles.migrationNotice}>
@@ -1253,6 +1320,15 @@ export default function VariantesPage() {
               <button className={styles.ghostBtn} onClick={resetAll}>
                 Nueva generación
               </button>
+              <button
+                className={`${styles.ghostBtn} ${styles.dangerBtn}`}
+                onClick={deleteGeneration}
+                disabled={deletingJob || jobRunning || !job}
+                title={jobRunning ? 'Esperá a que termine de generarse' : 'Borra las variantes, sus textos y el video base'}
+              >
+                {deletingJob ? <Loader2 size={14} className={styles.spin} /> : <Trash2 size={14} />}
+                Borrar generación
+              </button>
             </div>
           </div>
 
@@ -1342,6 +1418,15 @@ export default function VariantesPage() {
                           <Download size={15} />
                         </a>
                       )}
+                      <button
+                        className={`${styles.iconBtn} ${styles.dangerIcon}`}
+                        onClick={() => deleteVariant(v, i)}
+                        disabled={deletingId === v.id || deletingJob}
+                        title="Borrar esta variante (libera espacio)"
+                        aria-label={`Borrar la variante ${i + 1}`}
+                      >
+                        {deletingId === v.id ? <Loader2 size={15} className={styles.spin} /> : <Trash2 size={15} />}
+                      </button>
                       <button
                         className={styles.calendarBtn}
                         onClick={() => sendToCalendar(v)}

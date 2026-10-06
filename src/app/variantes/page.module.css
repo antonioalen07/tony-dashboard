@@ -964,3 +964,12 @@
 @media (max-width: 560px) {
   .actionBar .primaryBtn { width: 100%; justify-content: center; }
 }
+
+/* ── Borrado ──────────────────────────────────────────────────────────── */
+.dangerBtn:hover:not(:disabled),
+.dangerIcon:hover:not(:disabled) {
+  color: var(--accent-negative);
+  border-color: color-mix(in srgb, var(--accent-negative) 45%, var(--surface-border));
+}
+.dangerIcon { cursor: pointer; font: inherit; }
+.dangerIcon:disabled { opacity: 0.5; cursor: not-allowed; }
