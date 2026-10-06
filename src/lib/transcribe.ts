@@ -1,26 +1,28 @@
-import { ApifyClient } from 'apify-client';
+import { runSyncItems } from '@/lib/apify';
 
 /**
  * Resuelve el mp4 real de un post/reel de Instagram a partir de su permalink,
  * usando el actor `apify/instagram-scraper`. Devuelve una URL de CDN fresca
  * (Apify re-scrapea al momento, así que no depende de que la URL de Meta venza).
  * Reutilizado por la transcripción y por la generación de variantes desde reels.
+ *
+ * Pasa por el pool de keys de `apify.ts`: si la principal está sin crédito,
+ * usa la de reserva sin que el usuario lo note.
  */
 export async function resolveInstagramVideoUrl(postUrl: string): Promise<string> {
-  const apifyToken = process.env.APIFY_API_TOKEN;
-  if (!apifyToken) throw new Error('APIFY_API_TOKEN no configurada');
   if (!postUrl?.startsWith('http')) throw new Error('URL de Instagram inválida');
 
-  const apify = new ApifyClient({ token: apifyToken });
-  const run = await apify.actor('apify/instagram-scraper').call({
+  const items = await runSyncItems('apify/instagram-scraper', {
     directUrls: [postUrl],
     resultsType: 'posts',
     resultsLimit: 1,
     addParentData: false,
   });
 
-  const { items } = await apify.dataset(run.defaultDatasetId).listItems();
   const item: any = items[0];
+  if (item?.error) {
+    throw new Error(`Apify no pudo leer el post: ${item.errorDescription || item.error}`);
+  }
   const videoUrl: string | undefined = item?.videoUrl || item?.videoUrlBackup || item?.video_url;
   if (!videoUrl) {
     throw new Error('Apify no devolvió la URL del video (¿el post es público y tiene video?)');
