@@ -28,10 +28,8 @@ import ffmpegPath from 'ffmpeg-static';
  * @param {import('../src/lib/studio-types').AppliedVariantParams} p
  * @returns {string}
  */
-export function buildVideoFilter(p) {
-  const sat = clampNum(p.saturation, 0, 3, 1);
-  const con = clampNum(p.contrast, 0, 3, 1);
-  const speed = clampNum(p.speed, 0.5, 2, 1);
+/** Geometría efectiva de una variante (la misma para el video y para ubicar el texto). */
+function geometry(p) {
   const rotate = clampNum(p.rotate, -5, 5, 0);
   const panX = clampNum(p.panX, -1, 1, 0);
   const panY = clampNum(p.panY, -1, 1, 0);
@@ -39,6 +37,14 @@ export function buildVideoFilter(p) {
   // esquinas negras. Para ángulos chicos alcanza con 1 + 2·|sin(a)|.
   const rotCover = rotate === 0 ? 1 : 1 + 2 * Math.abs(Math.sin((rotate * Math.PI) / 180));
   const zoom = Math.max(clampNum(p.zoom, 1, 2, 1), rotCover);
+  return { rotate, panX, panY, zoom, mirror: !!p.mirror };
+}
+
+export function buildVideoFilter(p) {
+  const sat = clampNum(p.saturation, 0, 3, 1);
+  const con = clampNum(p.contrast, 0, 3, 1);
+  const speed = clampNum(p.speed, 0.5, 2, 1);
+  const { rotate, panX, panY, zoom } = geometry(p);
 
   const filters = [];
   // Color.
@@ -94,11 +100,17 @@ export async function transcodeVariant(inputPath, outputPath, params, opts = {})
     // último frame del overlay (eof_action=repeat), que es lo que queremos.
     const { width, height } = opts;
     const fit = width && height ? `,scale=${width}:${height}` : '';
+    // El texto acompaña al contenido: si se ubicó para tapar algo que el video
+    // ya trae, tiene que seguir tapándolo después del zoom/reencuadre de ESTA
+    // variante. Sin esto cada variante quedaba corrida distinto (hasta ~90 px).
+    const place = width && height ? overlayPlacement(params, width, height) : null;
+    const ovrChain = place ? `scale=${place.w}:${place.h}` : fit.slice(1) || 'null';
+    const at = place ? `${place.x}:${place.y}` : '0:0';
     args.push('-i', opts.overlayPath);
     args.push(
       '-filter_complex',
-      `[0:v]${vf}${fit}[base];[1:v]${fit.slice(1) || 'null'}[ovr];`
-        + `[base][ovr]overlay=0:0${buildOverlayEnable(params.text)}[v]`,
+      `[0:v]${vf}${fit}[base];[1:v]${ovrChain}[ovr];`
+        + `[base][ovr]overlay=${at}${buildOverlayEnable(params.text)}[v]`,
       '-map', '[v]',
     );
     if (opts.hasAudio) args.push('-map', '0:a:0');
@@ -132,6 +144,62 @@ export async function transcodeVariant(inputPath, outputPath, params, opts = {})
   args.push(outputPath);
 
   return runFfmpeg(args, log);
+}
+
+/**
+ * Dónde y a qué tamaño va el PNG del texto para que su centro caiga sobre el
+ * MISMO punto del contenido que el usuario eligió en el frame original.
+ *
+ * Reproduce la cadena geométrica de `buildVideoFilter`: scale(zoom) → rotate
+ * (alrededor del centro, horario) → crop con pan → hflip → scale al tamaño del
+ * source. El PNG se escala por el zoom (el contenido creció lo mismo) pero NO
+ * se rota ni se espeja: las letras quedan derechas y legibles.
+ *
+ * Sin x/y en el texto (jobs viejos) se devuelve null y el overlay va a 0:0.
+ * @returns {{ x: number, y: number, w: number, h: number } | null}
+ */
+export function overlayPlacement(params, W, H) {
+  const tx = Number(params?.text?.x);
+  const ty = Number(params?.text?.y);
+  if (!Number.isFinite(tx) || !Number.isFinite(ty)) return null;
+  const { rotate, panX, panY, zoom, mirror } = geometry(params);
+
+  let px = tx * W;
+  let py = ty * H;
+  let k = 1; // escala final del contenido respecto del source
+  if (zoom > 1.0001) {
+    // Mismas cuentas enteras que los filtros (ceil/floor a pares).
+    const Ws = Math.ceil((W * zoom) / 2) * 2;
+    const Hs = Math.ceil((H * zoom) / 2) * 2;
+    const cw = Math.floor(Ws / zoom / 2) * 2;
+    const ch = Math.floor(Hs / zoom / 2) * 2;
+    // scale
+    px *= Ws / W;
+    py *= Hs / H;
+    // rotate alrededor del centro (ángulo positivo = horario con y hacia abajo)
+    if (rotate !== 0) {
+      const a = (rotate * Math.PI) / 180;
+      const dx = px - Ws / 2;
+      const dy = py - Hs / 2;
+      px = Ws / 2 + dx * Math.cos(a) - dy * Math.sin(a);
+      py = Hs / 2 + dx * Math.sin(a) + dy * Math.cos(a);
+    }
+    // crop
+    px -= ((Ws - cw) / 2) * (1 + panX);
+    py -= ((Hs - ch) / 2) * (1 + panY);
+    if (mirror) px = cw - px;
+    // scale final al tamaño del source
+    px *= W / cw;
+    py *= H / ch;
+    k = (Ws / W) * (W / cw);
+  } else if (mirror) {
+    px = W - px;
+  }
+
+  const w = Math.max(2, Math.round((W * k) / 2) * 2);
+  const h = Math.max(2, Math.round((H * k) / 2) * 2);
+  // El centro del texto en el PNG escalado es (tx·w, ty·h): lo llevamos a (px, py).
+  return { x: Math.round(px - tx * w), y: Math.round(py - ty * h), w, h };
 }
 
 /**

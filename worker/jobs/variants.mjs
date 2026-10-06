@@ -112,6 +112,10 @@ export async function run(ctx) {
         ? {
             text: String(t.text),
             position: t.position || 'top',
+            // Centro elegido sobre el frame original: el overlay lo sigue a
+            // través del zoom/reencuadre de esta variante (ver overlayPlacement).
+            x: Number.isFinite(Number(t.x)) ? Number(t.x) : undefined,
+            y: Number.isFinite(Number(t.y)) ? Number(t.y) : undefined,
             startSec: Number(t.startSec) || 0,
             endSec: Number.isFinite(Number(t.endSec)) ? Number(t.endSec) : null,
             style: textStyle,

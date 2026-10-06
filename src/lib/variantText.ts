@@ -92,24 +92,39 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Rasteriza el texto a un PNG transparente del tamaño del video. */
-export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blob> {
-  const { text, position, x, y, style, width, height } = opts;
+/** Caja que ocupa el texto dibujado, en px del canvas. */
+export interface TextBBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(2, Math.round(width));
-  canvas.height = Math.max(2, Math.round(height));
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('El navegador no soporta canvas 2D');
-
-  const fontSize = Math.max(8, style.size * canvas.height);
-  const family = `"${style.font}", sans-serif`;
+/** Espera a que la fuente del texto esté lista (si no, el canvas dibuja con la de respaldo). */
+export async function ensureVariantFont(style: VariantTextStyle, height: number): Promise<void> {
+  const fontSize = Math.max(8, style.size * height);
   try {
-    await document.fonts?.load(`bold ${fontSize}px ${family}`);
+    await document.fonts?.load(`bold ${fontSize}px "${style.font}"`);
   } catch {
     /* si la fuente no carga se usa el fallback sans-serif */
   }
-  ctx.font = `bold ${fontSize}px ${family}`;
+}
+
+/**
+ * Dibuja el texto sobre `canvas` (que ya tiene el tamaño del video o uno
+ * proporcional) y devuelve la caja que ocupa. Es la ÚNICA implementación: la
+ * usan la vista previa del editor y el PNG que compone el worker, así lo que
+ * ves al arrastrar es exactamente lo que sale en el video.
+ */
+export function drawVariantText(canvas: HTMLCanvasElement, opts: RenderTextOptions): TextBBox | null {
+  const { text, position, x, y, style } = opts;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('El navegador no soporta canvas 2D');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!text.trim()) return null;
+
+  const fontSize = Math.max(8, style.size * canvas.height);
+  ctx.font = `bold ${fontSize}px "${style.font}", sans-serif`;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'center';
 
@@ -129,16 +144,17 @@ export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blo
   const padY = fontSize * 0.14;
   const cx = (x ?? 0.5) * canvas.width;
 
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   lines.forEach((line, i) => {
-    const y = top + i * lh;
+    const ly = top + i * lh;
     if (!line.trim()) return;
     const w = ctx.measureText(line).width;
+    const bx = cx - w / 2 - padX;
+    const by = ly - padY;
+    const bw = w + padX * 2;
+    const bh = fontSize + padY * 2;
     if (style.box) {
       ctx.fillStyle = rgba(style.boxColor, style.boxOpacity);
-      const bx = cx - w / 2 - padX;
-      const by = y - padY;
-      const bw = w + padX * 2;
-      const bh = fontSize + padY * 2;
       const r = Math.min(fontSize * 0.18, bh / 2);
       ctx.beginPath();
       if (typeof ctx.roundRect === 'function') ctx.roundRect(bx, by, bw, bh, r);
@@ -146,8 +162,21 @@ export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blo
       ctx.fill();
     }
     ctx.fillStyle = style.color;
-    ctx.fillText(line, cx, y);
+    ctx.fillText(line, cx, ly);
+    minX = Math.min(minX, bx); minY = Math.min(minY, by);
+    maxX = Math.max(maxX, bx + bw); maxY = Math.max(maxY, by + bh);
   });
+
+  return Number.isFinite(minX) ? { x: minX, y: minY, w: maxX - minX, h: maxY - minY } : null;
+}
+
+/** Rasteriza el texto a un PNG transparente del tamaño del video. */
+export async function renderVariantTextPng(opts: RenderTextOptions): Promise<Blob> {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(2, Math.round(opts.width));
+  canvas.height = Math.max(2, Math.round(opts.height));
+  await ensureVariantFont(opts.style, canvas.height);
+  drawVariantText(canvas, opts);
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(

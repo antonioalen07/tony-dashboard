@@ -435,8 +435,8 @@
 /* Textos por variante */
 .textLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
-  gap: 1.2rem;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.4rem;
   align-items: start;
 }
 @media (max-width: 760px) {
@@ -459,11 +459,29 @@
 }
 .textTimeHead { text-align: center; }
 .textRowNum {
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
 }
-.textRow .urlInput { min-width: 0; }
+.textRowNum:hover { color: var(--text-primary); }
+.textRowActive .textRowNum { color: var(--accent-primary); }
+.textRowActive .urlInput {
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--surface-border));
+}
+.textRow .urlInput {
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+}
+.textRow .urlInput:focus { border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--surface-border)); }
 .timeInput {
   width: 100%;
   min-width: 0;
@@ -510,12 +528,79 @@
   color: var(--text-secondary);
 }
 
-.textSide { display: flex; flex-direction: column; gap: 0.7rem; }
+.textSide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  position: sticky;
+  top: 1rem;
+}
+@media (max-width: 760px) {
+  .textSide { position: static; }
+}
+
+.previewTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.previewTab {
+  position: relative;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.previewTab:hover { color: var(--text-primary); }
+/* Punto: esa variante tiene texto */
+.previewTabHas::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.previewTabActive {
+  background: var(--surface-strong);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--surface-border));
+}
+
+.styleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem 1rem;
+  margin-top: 0.8rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--surface-border);
+  align-items: end;
+}
+.styleGrid .checkField { padding-bottom: 8px; }
+.optional {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-left: 0.4rem;
+}
 
 .textPreview {
   position: relative;
   width: 100%;
-  max-width: 208px;
+  max-width: 300px;
   align-self: center;
   /* aspect-ratio va inline: es el del video base, para que arrastrar acá
      equivalga exactamente a la posición en el PNG que compone el worker. */
@@ -538,16 +623,19 @@
   object-fit: fill;
   pointer-events: none;
 }
+.textPreviewCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* Zona de agarre: cubre exactamente la caja que dibujó el canvas. */
 .textPreviewBlock {
   position: absolute;
-  width: 84%; /* mismo ancho útil que TEXT_MAX_W en el render del PNG */
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
   cursor: grab;
   outline: none;
+  border-radius: 4px;
 }
 .textPreviewBlock:active { cursor: grabbing; }
 .textPreviewBlock:focus-visible,
@@ -555,21 +643,6 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 60%, transparent);
   border-radius: 3px;
 }
-.textPreviewLine {
-  display: inline-block;
-  padding: 0.14em 0.32em; /* mismos pads que el canvas (0.14 / 0.32 del cuerpo) */
-  /* El canvas avanza 1.25em por línea; sin esto el padding vertical separaría
-     las líneas de más y la preview mentiría en los textos de varias líneas. */
-  margin-block: -0.14em;
-  border-radius: 3px;
-  font-weight: 700;
-  line-height: 1.25;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: calc(var(--tp-size, 0.055) * 340px); /* fallback sin unidades cq */
-  font-size: calc(var(--tp-size, 0.055) * 100cqh);
-}
-
 .posRow {
   display: flex;
   align-items: center;
@@ -837,4 +910,57 @@
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
   .reelSkeleton { animation: none; }
+}
+
+/* ── Ajustes de re-edición ────────────────────────────────────────────── */
+.adjustHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem 1.2rem;
+  flex-wrap: wrap;
+}
+.adjustHead .sectionTitle { margin-bottom: 0; }
+.adjustHead .mirrorRow { margin: 0; }
+.advancedToggle { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.8rem; }
+.advancedToggle svg { transition: transform 0.18s ease; }
+.chevOpen { transform: rotate(180deg); }
+
+/* ── Barra de acción fija ─────────────────────────────────────────────── */
+/* Queda pegada al borde inferior mientras se configura, y se apoya en su
+   lugar (justo antes de los resultados) al llegar al final. */
+.actionBar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem 1.2rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0.9rem 0.75rem 1.1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--surface-border);
+  background: color-mix(in srgb, var(--card-elevated) 97%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-pop);
+}
+.actionCount {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  min-width: 220px;
+}
+.actionCount .slider { flex: 1; min-width: 110px; }
+.actionSummary {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  min-width: 160px;
+}
+.actionBar .primaryBtn { margin-left: auto; }
+@media (max-width: 560px) {
+  .actionBar .primaryBtn { width: 100%; justify-content: center; }
 }
