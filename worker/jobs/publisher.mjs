@@ -23,9 +23,7 @@ import { randomUUID } from 'node:crypto';
 
 const GRAPH_VERSION = 'v20.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
-const STORAGE_BUCKET = 'studio';
 const FALLBACK_IG_ACCOUNT_ID = '17841476480622974';
-const CLEANUP_AFTER_DAYS = 7;
 
 // Poll del estado del contenedor en modo real.
 const POLL_INTERVAL_MS = 5000;
@@ -166,46 +164,6 @@ async function markFailed(supabase, log, item, message) {
   if (error) log(`[publisher] no se pudo marcar failed el item ${item.id}: ${error.message}`);
 }
 
-/** Borra del Storage los objetos de items publicados hace más de 7 días. */
-async function cleanupOldStorage(supabase, log) {
-  const cutoff = new Date(Date.now() - CLEANUP_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const { data: oldItems, error } = await supabase
-    .from('publish_queue')
-    .select('id, variant_id')
-    .eq('status', 'published')
-    .lt('published_at', cutoff);
-  if (error) {
-    log(`[publisher] cleanup: no se pudo listar items viejos: ${error.message}`);
-    return;
-  }
-  if (!oldItems || oldItems.length === 0) return;
-
-  const paths = [];
-  for (const it of oldItems) {
-    if (!it.variant_id) continue;
-    const { data: variant } = await supabase
-      .from('video_variants')
-      .select('asset_id')
-      .eq('id', it.variant_id)
-      .single();
-    if (!variant?.asset_id) continue;
-    const { data: asset } = await supabase
-      .from('media_assets')
-      .select('storage_path')
-      .eq('id', variant.asset_id)
-      .single();
-    if (asset?.storage_path) paths.push(asset.storage_path);
-  }
-  if (paths.length === 0) return;
-
-  const { error: rmErr } = await supabase.storage.from(STORAGE_BUCKET).remove(paths);
-  if (rmErr) {
-    log(`[publisher] cleanup: error borrando objetos: ${rmErr.message}`);
-  } else {
-    log(`[publisher] cleanup: ${paths.length} objeto(s) de Storage borrados (publicados hace +${CLEANUP_AFTER_DAYS} días)`);
-  }
-}
-
 async function run(ctx) {
   const { supabase, env, log } = ctx;
   const dry = isDryRun(env);
@@ -282,7 +240,7 @@ async function run(ctx) {
     }
   }
 
-  await cleanupOldStorage(supabase, log);
+  // La limpieza del Storage la hace jobs/retention.mjs (política única de retención).
 }
 
 export const name = 'publisher';

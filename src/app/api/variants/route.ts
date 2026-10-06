@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  *   - publicaciones ya hechas  → se desligan (variant_id = NULL) y se conservan
  *   - pendientes / fallidas    → se borran (= se cancela lo programado)
  *   - una publicándose ahora   → 409, no se toca nada
- * Mismo criterio que cleanup_variants.mjs.
+ * Mismo criterio que la retención automática (worker/jobs/retention.mjs).
  */
 
 interface QueueRow { id: string; status: string }

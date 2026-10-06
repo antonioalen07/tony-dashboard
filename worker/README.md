@@ -76,3 +76,19 @@ auto-deploy). El worker se reinicia solo y retoma la cola.
   `failed`; el worker sigue vivo para el resto de la cola.
 - Los archivos temporales se generan en el tmpdir del SO y se borran siempre
   (`finally`), tanto en éxito como en fallo.
+
+## Retención del Storage (`jobs/retention.mjs`)
+
+Corre cada hora. Borra las variantes **publicadas** (conserva la fila del
+calendario con `variant_id = NULL`) y las **nunca enviadas** al calendario a las
+48 h; las **programadas** (`pending` / `publishing` / `failed`) no se tocan.
+También limpia generaciones vacías, videos base que ninguna generación usa y
+archivos colgados. Reemplaza al viejo `cleanup_variants.mjs` (borraba todo,
+incluidas las programadas) y a la limpieza de 7 días que tenía el publicador.
+
+```
+node jobs/retention.mjs --now          # qué borraría hoy, sin esperar 48 h (dry-run)
+node jobs/retention.mjs --now --apply  # ejecutarlo
+```
+
+En los logs aparece `[retention] …` sólo cuando borra algo.

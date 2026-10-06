@@ -1332,6 +1332,11 @@ export default function VariantesPage() {
             </div>
           </div>
 
+          <p className={styles.retentionNote}>
+            Se borran solas para no llenar el Storage: las <strong>publicadas</strong> y las que no mandes
+            al calendario en <strong>48 h</strong>. Las programadas se conservan.
+          </p>
+
           {job?.status === 'failed' && job.error && (
             <div className={styles.errorBox}><AlertCircle size={15} /> {job.error}</div>
           )}

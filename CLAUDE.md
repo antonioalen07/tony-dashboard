@@ -77,6 +77,27 @@ La app registrada en Meta sigue llamándose **"Crevy Content"**: es un nombre de
 la consola de Meta, no se cambia desde el código y renombrarla dispara revisión.
 El módulo interno pasó a llamarse **BAKO Studio**.
 
+## Retención del Storage (automática)
+
+El plan free de Supabase tiene 1 GB y se llenó dos veces: las variantes pesan
+20-35 MB cada una. Desde el 6-oct-2026 corre `worker/jobs/retention.mjs` cada
+hora en el worker, con esta regla (pedida por el usuario, no la cambies sin él):
+
+- **Programada** (publish_queue `pending` / `publishing` / `failed`) → no se toca.
+- **Publicada** → se borra el video; la fila del calendario queda con
+  `variant_id = NULL` para conservar el historial.
+- **Nunca enviada** al calendario a las 48 h → se borra.
+- Generaciones vacías, videos base sin generación (+48 h) y archivos colgados → se borran.
+
+Las FK son `ON DELETE CASCADE` de punta a punta (media_assets → variant_jobs →
+video_variants → publish_queue): borrar un video base que todavía usa un job
+arrastra las variantes programadas y el historial. Por eso el orden es siempre
+desligar historial → borrar variantes → jobs vacíos → recién ahí videos base.
+El mismo criterio usa `DELETE /api/variants` (botones de borrar en la UI).
+
+A mano: `node worker/jobs/retention.mjs --now` (dry-run sin la espera de 48 h),
+`--apply` para ejecutar. El medidor de uso es `GET /api/storage/usage`.
+
 ## Arquitectura de los prompts de IA
 
 **Los tres prompts se arman SOLO con bloques editables.** No hay texto de

@@ -973,3 +973,9 @@
 }
 .dangerIcon { cursor: pointer; font: inherit; }
 .dangerIcon:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.retentionNote {
+  margin: -0.4rem 0 0.9rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
