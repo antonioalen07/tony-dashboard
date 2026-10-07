@@ -1,8 +1,29 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/utils/supabase';
 import { pathFromPublicUrl, removeStorage, walkStorage } from '@/lib/storageAdmin';
+import { requireRole } from '@/lib/auth';
+import { InputError, object, uuid } from '@/lib/automation-validation';
+import { enqueueVariantWithCaption, persistVariantCaption } from '@/lib/variant-caption';
 
 export const dynamic = 'force-dynamic';
+
+async function captionRequest(request: Request) {
+  const auth = await requireRole(request);
+  if (!auth.ok) return auth.res;
+  try {
+    const body = object(await request.json());
+    const id = uuid(body.variant_id);
+    const result = request.method === 'POST'
+      ? await enqueueVariantWithCaption(supabase, id, body.caption)
+      : await persistVariantCaption(supabase, id, body.caption);
+    return NextResponse.json(result);
+  } catch (error) {
+    const failure = error as Error & { status?: number; migrationNeeded?: boolean; migrationFile?: string };
+    return NextResponse.json({ error: failure.message || 'No se pudo guardar la descripción.', migrationNeeded: failure.migrationNeeded || false, migrationFile: failure.migrationFile }, { status: failure.status || (error instanceof InputError || error instanceof SyntaxError ? 400 : 500) });
+  }
+}
+
+export { captionRequest as POST, captionRequest as PATCH };
 
 /**
  * DELETE /api/variants?id=<variantId>   → borra UNA variante

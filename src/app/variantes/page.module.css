@@ -527,6 +527,12 @@
   font-size: 0.68rem;
   color: var(--text-secondary);
 }
+.captionState {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
 .textSide {
   display: flex;

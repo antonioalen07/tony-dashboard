@@ -218,6 +218,8 @@ export interface VariantJob {
 
 /** Valores concretos aplicados a UNA variante (no rangos). */
 export interface AppliedVariantParams {
+  /** Descripción del post guardada junto a la variante; independiente del texto quemado. */
+  caption?: string;
   saturation: number;
   contrast: number;
   trimStartMs: number;

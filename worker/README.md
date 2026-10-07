@@ -1,13 +1,13 @@
 # BAKO Studio — Worker
 
 Proceso de larga duración (sin puerto HTTP) que corre en el VPS y procesa la
-cola de jobs de BAKO Studio contra Supabase. Hoy incluye el **motor de
-variantes de video**; más adelante se le suman otros jobs (p. ej. el publicador).
+cola de jobs de BAKO Studio contra Supabase. Incluye el motor de variantes de
+video, el publicador, la retención y las automatizaciones de Instagram.
 
 ## Arquitectura
 
 - `index.mjs` — orquestador. Carga env con `dotenv`, crea el cliente Supabase
-  (URL + anon key) e **importa dinámicamente** todos los `jobs/*.mjs` que
+  (URL + service-role key) e **importa dinámicamente** todos los `jobs/*.mjs` que
   exporten `{ name, intervalMs, run(ctx) }`. Programa cada uno con `setInterval`
   y un **guard anti-solape** (no re-entra si el tick anterior sigue corriendo).
   `ctx = { supabase, env, log }`.
@@ -59,7 +59,7 @@ El worker corre como un **App service** (no necesita dominio ni puerto).
    `node:20-slim` y `ffmpeg-static` trae su propio binario, así que no hace falta
    instalar `ffmpeg` por `apt`.
 3. **Environment**: cargar `NEXT_PUBLIC_SUPABASE_URL` y
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` (y opcionalmente `WORKER_POLL_MS`).
+   `SUPABASE_SERVICE_ROLE_KEY` (y opcionalmente `WORKER_POLL_MS`).
 4. **Network/Ports**: dejar sin puertos publicados — es un worker de fondo.
 5. **Resources**: el transcodeo con ffmpeg usa CPU; 1 vCPU / 1 GB alcanza para
    clips cortos de reels.
@@ -100,6 +100,13 @@ secuencias elegibles y reclama hasta 10 trabajos con cupo compartido de mensajes
 El polling de comentarios corre cada 5 minutos como respaldo del webhook.
 El loader descubre el job automáticamente; no hace falta tocar `index.mjs`.
 
+Con un webhook recibido, el trabajo se reclama en el siguiente ciclo de 15 s
+(más el tiempo de envío de Meta y cualquier cupo ocupado). Con polling, un
+comentario visible en la API puede esperar hasta 5 min más el procesamiento.
+Si no aparece ningún evento pasado ese plazo, revisá las suscripciones de la app
+y la página en Meta y que los logs del worker incluyan `automations@15000ms`.
+El SQL y el deploy de Vercel no actualizan el proceso del VPS: requiere redeploy.
+
 Ejecutá `supabase_migration_automations.sql` en el SQL Editor de Supabase antes
 de usarlo. Requiere `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
 `META_ACCESS_TOKEN`, `META_IG_ACCOUNT_ID`, `META_PAGE_ID` y, opcionalmente,
@@ -119,3 +126,15 @@ pública. Las tablas de automatizaciones no están incluidas en la retención de
 Desde la raíz del repo: `npm run test:automations` (PostgreSQL local en memoria y
 Meta simulado). Estas pruebas no envían mensajes ni modifican Supabase.
 Para activar cambios en Easypanel, redeployá el worker después de desplegar la app.
+
+## Descripciones de variantes (`jobs/publisher.mjs`)
+
+La app guarda el borrador en `video_variants.params.caption` y copia la descripción
+confirmada a `publish_queue.caption` al enviar al calendario. El publicador usa
+esa columna de la fila recién reclamada, conservando saltos de línea y hashtags.
+Una descripción vacía es válida; el título quemado del video queda independiente.
+Si falta la columna `caption`, la app y el worker bloquean la publicación en lugar
+de omitir silenciosamente el texto. La columna pertenece a
+`supabase_migration_ai_config.sql`.
+
+Desde la raíz: `npm run test:variants`. Usa datos simulados, sin publicaciones reales.

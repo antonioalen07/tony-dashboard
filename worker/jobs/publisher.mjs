@@ -49,7 +49,10 @@ function isDryRun(env) {
 }
 
 /** Construye el payload de creación de contenedor, idéntico en dry-run y real. */
-function buildContainerPayload(item, videoUrl) {
+export function buildContainerPayload(item, videoUrl) {
+  if (!Object.hasOwn(item, 'caption')) {
+    throw new Error('Falta publish_queue.caption: ejecutá supabase_migration_ai_config.sql antes de publicar');
+  }
   const payload = {
     media_type: 'REELS',
     video_url: videoUrl,
@@ -190,22 +193,26 @@ async function run(ctx) {
   const items = due || [];
   if (items.length > 0) log(`[publisher] ${items.length} item(s) vencido(s) para publicar`);
 
-  for (const item of items) {
+  for (const candidate of items) {
     // Lock optimista: pending → publishing sólo si sigue pending.
     const { data: locked, error: lockErr } = await supabase
       .from('publish_queue')
       .update({ status: 'publishing', error: null })
-      .eq('id', item.id)
+      .eq('id', candidate.id)
       .eq('status', 'pending')
-      .select('id');
+      .select('*');
     if (lockErr) {
-      log(`[publisher] no se pudo lockear el item ${item.id}: ${lockErr.message}`);
+      log(`[publisher] no se pudo lockear el item ${candidate.id}: ${lockErr.message}`);
       continue;
     }
     if (!locked || locked.length === 0) {
       // Otro proceso lo tomó; lo salteamos.
       continue;
     }
+
+    // Usar el caption confirmado al reclamar, incluidas ediciones hechas
+    // después de consultar los pendientes y antes de comenzar la publicación.
+    const item = locked[0];
 
     try {
       const asset = await resolveAsset(supabase, item);

@@ -12,6 +12,7 @@ import { supabase } from '@/utils/supabase';
 import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { compressVideo } from '@/lib/compressVideo';
 import { STORY_FONTS } from '@/lib/storyRender';
+import { storedVariantCaption } from '@/lib/variant-caption';
 import {
   renderVariantTextPng, drawVariantText, ensureVariantFont, getVideoMeta, type VideoMeta,
 } from '@/lib/variantText';
@@ -183,6 +184,12 @@ export default function VariantesPage() {
 
   // Captions por variante (índice de la variante → texto del post)
   const [captions, setCaptions] = useState<Record<string, string>>({});
+  const captionsRef = useRef<Record<string, string>>({});
+  const dirtyCaptionsRef = useRef(new Set<string>());
+  const captionRevisionsRef = useRef<Record<string, number>>({});
+  const captionTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const captionSavesRef = useRef(new Map<string, Promise<void>>());
+  const [captionStates, setCaptionStates] = useState<Record<string, string>>({});
 
   // Job activo + variantes
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -197,6 +204,19 @@ export default function VariantesPage() {
   const [storageKey, setStorageKey] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const persistCaptionDrafts = useCallback(() => {
+    if (!activeJobId) return;
+    try {
+      // Un guardado que terminó después de cerrar/cambiar la generación no
+      // puede volver a activar su caché ni reemplazar la generación actual.
+      if (localStorage.getItem(LAST_JOB_KEY) !== activeJobId) return;
+      localStorage.setItem(CAPTIONS_KEY, JSON.stringify({
+        version: 2, jobId: activeJobId, captions: captionsRef.current,
+        pendingIds: [...dirtyCaptionsRef.current],
+      }));
+    } catch { /* El guardado en servidor sigue disponible si Storage está bloqueado. */ }
+  }, [activeJobId]);
 
   // ── Detección de migración al montar ──────────────────────────────────────
   useEffect(() => {
@@ -233,6 +253,9 @@ export default function VariantesPage() {
 
   // ── Fetch del estado del job (usado por el poll y por "Actualizar") ───────
   const fetchJobState = useCallback(async (jobId: string) => {
+    // Se captura ANTES de leer la base: también se invalida cuando se confirma
+    // un PATCH/POST, aunque el texto visible no haya cambiado.
+    const revisions = { ...captionRevisionsRef.current };
     const { data: jobData, error: jobErr } = await supabase
       .from('variant_jobs').select('*').eq('id', jobId).single();
     if (isMissingTable(jobErr)) { setMigrationNeeded(true); return null; }
@@ -244,18 +267,22 @@ export default function VariantesPage() {
       .eq('job_id', jobId)
       .order('created_at', { ascending: true });
     if (vs) {
-      setVariants(vs as unknown as VariantRow[]);
+      const currentVariants = vs as unknown as VariantRow[];
+      setVariants(currentVariants);
 
       // Qué variantes ya están encoladas. Se relee de la base (y no sólo del
       // estado local) para que al volver a la página sigan marcadas "Enviada"
       // y no se pueda encolar la misma variante dos veces.
-      const ids = (vs as unknown as VariantRow[]).map((v) => v.id);
+      const ids = currentVariants.map((v) => v.id);
+      let queueCaptions: { variant_id: string | null; caption: string | null }[] = [];
       if (ids.length) {
-        const { data: queued } = await supabase
+        const { data: queued, error: queueError } = await supabase
           .from('publish_queue')
-          .select('variant_id')
+          .select('variant_id,caption')
           .in('variant_id', ids);
+        if (isMissingCaption(queueError)) setCaptionColumnMissing(true);
         if (queued) {
+          queueCaptions = queued as typeof queueCaptions;
           setSentIds(new Set(
             (queued as { variant_id: string | null }[])
               .map((q) => q.variant_id)
@@ -263,6 +290,19 @@ export default function VariantesPage() {
           ));
         }
       }
+      const next = { ...captionsRef.current };
+      for (const variant of currentVariants) {
+        if (dirtyCaptionsRef.current.has(variant.id) || (captionRevisionsRef.current[variant.id] || 0) !== (revisions[variant.id] || 0)) continue;
+        const queued = queueCaptions.find((item) => item.variant_id === variant.id);
+        const stored = storedVariantCaption(variant.params);
+        const caption = queued ? queued.caption || '' : stored;
+        if (caption !== null && next[variant.id] !== caption) {
+          next[variant.id] = caption;
+          captionRevisionsRef.current[variant.id] = (captionRevisionsRef.current[variant.id] || 0) + 1;
+        }
+      }
+      captionsRef.current = next;
+      setCaptions(next);
     }
 
     return (jobData as VariantJob) || null;
@@ -279,8 +319,24 @@ export default function VariantesPage() {
       try {
         const raw = localStorage.getItem(CAPTIONS_KEY);
         if (!raw) return;
-        const saved = JSON.parse(raw) as { jobId?: string; captions?: Record<string, string> };
-        if (saved.jobId === jobId && saved.captions) setCaptions(saved.captions);
+        const saved = JSON.parse(raw) as { version?: number; jobId?: string; captions?: Record<string, string>; pendingIds?: unknown[] };
+        if (saved.jobId === jobId && saved.captions) {
+          const valid = Object.fromEntries(Object.entries(saved.captions).filter(([, value]) => typeof value === 'string' && value.length <= 2200));
+          captionsRef.current = valid;
+          dirtyCaptionsRef.current.clear();
+          // Sólo borradores pendientes tienen prioridad sobre el servidor.
+          // Los captions cacheados ya guardados (y el formato viejo sin esta
+          // marca) se refrescan desde la base, incluso si otro equipo los editó.
+          const pending = saved.version === 2 && Array.isArray(saved.pendingIds)
+            ? saved.pendingIds.filter((id): id is string => typeof id === 'string' && Object.hasOwn(valid, id))
+            : [];
+          pending.forEach((id) => {
+            dirtyCaptionsRef.current.add(id);
+            captionRevisionsRef.current[id] = (captionRevisionsRef.current[id] || 0) + 1;
+          });
+          setCaptionStates(Object.fromEntries(pending.map((id) => [id, 'Borrador pendiente de guardar'])));
+          setCaptions(valid);
+        }
       } catch { /* storage corrupto: se ignora y se reescribe */ }
     };
 
@@ -310,8 +366,13 @@ export default function VariantesPage() {
   useEffect(() => {
     if (!activeJobId) return;
     localStorage.setItem(LAST_JOB_KEY, activeJobId);
-    localStorage.setItem(CAPTIONS_KEY, JSON.stringify({ jobId: activeJobId, captions }));
-  }, [activeJobId, captions]);
+    persistCaptionDrafts();
+  }, [activeJobId, captions, persistCaptionDrafts]);
+
+  useEffect(() => {
+    const timers = captionTimersRef.current;
+    return () => { timers.forEach((timer) => clearTimeout(timer)); timers.clear(); };
+  }, []);
 
   // ── Poll (patrón runScan de inspiración): start + poll cada ~4s ───────────
   useEffect(() => {
@@ -581,39 +642,92 @@ export default function VariantesPage() {
     }
   };
 
+  const captionRequest = async (method: 'PATCH' | 'POST', variantId: string, caption: string) => {
+    const response = await fetch('/api/variants', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variant_id: variantId, caption }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (data.migrationFile === 'supabase_migration_ai_config.sql') setCaptionColumnMissing(true);
+      else if (data.migrationNeeded) setMigrationNeeded(true);
+      throw new Error(data.error || 'No se pudo guardar la descripción.');
+    }
+    setCaptionColumnMissing(false);
+    return data as { caption?: string; queued?: { caption: string | null }; alreadyQueued?: boolean };
+  };
+
+  // Los guardados de una variante se serializan: una respuesta vieja nunca
+  // pisa una descripción más nueva cuando se escribe o se encola rápidamente.
+  const saveCaption = (variantId: string, value: string) => {
+    const revision = captionRevisionsRef.current[variantId] || 0;
+    const previous = captionSavesRef.current.get(variantId) || Promise.resolve();
+    const save = previous.catch(() => {}).then(async () => {
+      setCaptionStates((current) => ({ ...current, [variantId]: 'Guardando descripción…' }));
+      try {
+        const response = await captionRequest('PATCH', variantId, value);
+        if ((captionRevisionsRef.current[variantId] || 0) === revision && captionsRef.current[variantId] === value) {
+          const saved = response.caption ?? value;
+          captionRevisionsRef.current[variantId] = revision + 1;
+          captionsRef.current = { ...captionsRef.current, [variantId]: saved };
+          dirtyCaptionsRef.current.delete(variantId);
+          persistCaptionDrafts();
+          setCaptions((current) => ({ ...current, [variantId]: saved }));
+          setCaptionStates((current) => ({ ...current, [variantId]: 'Descripción guardada' }));
+        }
+      } catch (error) {
+        setCaptionStates((current) => ({ ...current, [variantId]: error instanceof Error ? error.message : 'No se pudo guardar la descripción.' }));
+        throw error;
+      }
+    });
+    captionSavesRef.current.set(variantId, save);
+    return save;
+  };
+
+  const editCaption = (variantId: string, value: string) => {
+    captionRevisionsRef.current[variantId] = (captionRevisionsRef.current[variantId] || 0) + 1;
+    captionsRef.current = { ...captionsRef.current, [variantId]: value };
+    dirtyCaptionsRef.current.add(variantId);
+    persistCaptionDrafts();
+    setCaptions((current) => ({ ...current, [variantId]: value }));
+    setCaptionStates((current) => ({ ...current, [variantId]: 'Sin guardar' }));
+    const timer = captionTimersRef.current.get(variantId);
+    if (timer) clearTimeout(timer);
+    captionTimersRef.current.set(variantId, setTimeout(() => {
+      captionTimersRef.current.delete(variantId);
+      void saveCaption(variantId, value).catch(() => {});
+    }, 600));
+  };
+
+  const flushCaption = (variantId: string) => {
+    const timer = captionTimersRef.current.get(variantId);
+    if (timer) clearTimeout(timer);
+    captionTimersRef.current.delete(variantId);
+    if (dirtyCaptionsRef.current.has(variantId)) void saveCaption(variantId, captionsRef.current[variantId] || '').catch(() => {});
+  };
+
   // ── Enviar variante al calendario (publish_queue, trial_reel pending) ─────
   const sendToCalendar = async (v: VariantRow) => {
     setSendingId(v.id);
     try {
-      const caption = (captions[v.id] ?? '').trim();
-      const base = {
-        variant_id: v.id,
-        kind: 'trial_reel' as const,
-        status: 'pending' as const,
-        scheduled_at: null,
-      };
-      let { error } = await supabase.from('publish_queue').insert({ ...base, caption: caption || null });
-
-      // `caption` es de una migración posterior. Si la base todavía no la tiene,
-      // encolamos igual (sin caption) en vez de dejar al usuario sin poder mandar
-      // nada al calendario, y le decimos exactamente qué falta.
-      // Ojo: PostgREST responde "Could not find the 'caption' column ... in the
-      // schema cache", que también matchea isMissingTable — por eso va primero.
-      if (error && isMissingCaption(error)) {
-        setCaptionColumnMissing(true);
-        ({ error } = await supabase.from('publish_queue').insert(base));
-        if (!error) {
-          setSentIds((prev) => new Set(prev).add(v.id));
-          toast('Encolada, pero SIN el caption: falta correr supabase_migration_ai_config.sql', 'error');
-          return;
-        }
-      }
-
-      if (isMissingTable(error)) { setMigrationNeeded(true); return; }
-      if (error) { toast(error.message || 'No se pudo encolar', 'error'); return; }
-
+      const caption = captionsRef.current[v.id] ?? storedVariantCaption(v.params) ?? '';
+      const timer = captionTimersRef.current.get(v.id);
+      if (timer) clearTimeout(timer);
+      captionTimersRef.current.delete(v.id);
+      await captionSavesRef.current.get(v.id)?.catch(() => {});
+      const data = await captionRequest('POST', v.id, caption);
+      const saved = data.queued?.caption || '';
+      captionRevisionsRef.current[v.id] = (captionRevisionsRef.current[v.id] || 0) + 1;
+      captionsRef.current = { ...captionsRef.current, [v.id]: saved };
+      setCaptions((current) => ({ ...current, [v.id]: saved }));
+      dirtyCaptionsRef.current.delete(v.id);
+      persistCaptionDrafts();
+      setCaptionStates((current) => ({ ...current, [v.id]: 'Descripción guardada en el calendario' }));
       setSentIds((prev) => new Set(prev).add(v.id));
-      toast('Enviada al calendario como reel de prueba', 'success');
+      toast(data.alreadyQueued ? 'Esta variante ya estaba en el calendario' : 'Enviada al calendario como reel de prueba', 'success');
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'No se pudo encolar la variante.', 'error');
     } finally {
       setSendingId(null);
     }
@@ -807,7 +921,7 @@ export default function VariantesPage() {
           <AlertCircle size={16} className={styles.noticeIcon} />
           <span>
             <strong>La base está atrasada:</strong> falta la columna <code>caption</code> en{' '}
-            <code>publish_queue</code>. Las variantes se encolan igual, pero sin el texto del post.
+            <code>publish_queue</code>. Actualizá la base antes de enviar variantes al calendario.
             Corré <code>supabase_migration_ai_config.sql</code> en el SQL Editor de Supabase.
           </span>
         </div>
@@ -1399,12 +1513,15 @@ export default function VariantesPage() {
                     <textarea
                       className={styles.captionInput}
                       value={captions[v.id] ?? ''}
-                      onChange={(e) => setCaptions((prev) => ({ ...prev, [v.id]: e.target.value }))}
-                      placeholder="Caption del post (opcional)…"
+                      onChange={(e) => editCaption(v.id, e.target.value)}
+                      onBlur={() => flushCaption(v.id)}
+                      aria-label={`Descripción del post de la variante ${i + 1}`}
+                      placeholder="Descripción del post (opcional)…"
                       rows={2}
                       maxLength={2200}
-                      disabled={sentIds.has(v.id)}
+                      disabled={sentIds.has(v.id) || sendingId === v.id}
                     />
+                    {captionStates[v.id] && <span className={styles.captionState} role="status">{captionStates[v.id]}</span>}
                     {(captions[v.id]?.length ?? 0) > 1900 && (
                       <span className={styles.captionCount}>
                         {captions[v.id].length}/2200
@@ -1435,7 +1552,7 @@ export default function VariantesPage() {
                       <button
                         className={styles.calendarBtn}
                         onClick={() => sendToCalendar(v)}
-                        disabled={sendingId === v.id || sentIds.has(v.id)}
+                        disabled={sendingId === v.id || sentIds.has(v.id) || captionColumnMissing}
                       >
                         {sentIds.has(v.id)
                           ? <><Check size={14} /> Enviada</>
