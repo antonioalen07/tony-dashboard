@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { supabase } from '@/utils/supabase';
 import { enqueueComment } from '../../../../../worker/lib/automation-core.mjs';
 import { createMeta } from '../../../../../worker/lib/meta.mjs';
+import { inboundMessage, receiveMessage } from '../../../../../worker/lib/crm.mjs';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 interface Change {
@@ -31,6 +32,8 @@ interface Message {
         mid: string;
         text?: string;
         is_echo?: boolean;
+        attachments?: { type?: string; payload?: { url?: string } }[];
+        reply_to?: { story?: { id?: string } };
     };
 }
 interface Entry {
@@ -71,6 +74,9 @@ export async function POST(request: Request) {
         const { data: autos, error } = await supabase.from('automations').select('*').eq('active', true);
         if (error)
             throw error;
+        const hasMessages = (body.entry || []).some((entry) => entry.id === account && entry.messaging?.some((event) => inboundMessage(event, account)));
+        const { data: stories, error: storyError } = hasMessages ? await supabase.from('story_automations').select('*').eq('active', true) : { data: [], error: null };
+        if (storyError) throw storyError;
         const meta = createMeta(process.env);
         for (const entry of body.entry || []) {
             if (entry.id !== account)
@@ -86,13 +92,8 @@ export async function POST(request: Request) {
                 await enqueueComment(supabase, { id: c.id, mediaId: c.media.id, text: c.text || '', at, userId: c.from?.id, username: c.from?.username }, autos || [], account, 'webhook');
             }
             for (const event of entry.messaging || []) {
-                if (!event.message?.mid || event.message.is_echo || !event.sender?.id || event.sender.id === account || event.recipient?.id !== account)
-                    continue;
-                if (!event.timestamp || event.timestamp > Date.now() + 60000)
-                    continue;
-                const { error: e } = await supabase.rpc('automation_receive_message', { p_account: account, p_user: event.sender.id, p_mid: event.message.mid, p_text: event.message.text || '', p_at: new Date(Math.min(event.timestamp, Date.now())).toISOString() });
-                if (e)
-                    throw e;
+                const message = inboundMessage(event, account);
+                if (message) await receiveMessage(supabase, message, account, stories || []);
             }
         }
         return Response.json({ received: true });

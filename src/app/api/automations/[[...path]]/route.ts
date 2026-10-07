@@ -1,6 +1,7 @@
 import { supabase as db } from '@/utils/supabase';
 import { requireRole } from '@/lib/auth';
 import { InputError, object, uuid, automationInput, sequenceInput, leadInput, tagName } from '@/lib/automation-validation';
+import { automationDataError, optionalAutomationData, loadAutomationMedia, leadSearchFilter } from '@/lib/automation-data';
 export const dynamic = 'force-dynamic';
 type Context = {
     params: Promise<{
@@ -15,7 +16,7 @@ function result<T>(r: {
     } | null;
 }): NonNullable<T> { if (r.error)
     throw Object.assign(new Error(r.error.message), { code: r.error.code }); return r.data as NonNullable<T>; }
-const json = (data: unknown) => Response.json(data);
+const json = (data: unknown, warnings: string[] = []) => Response.json(data, warnings.length ? { headers: { 'X-Automation-Warnings': encodeURIComponent(JSON.stringify(warnings)) } } : undefined);
 async function handle(request: Request, context: Context) {
     const auth = await requireRole(request);
     if (!auth.ok)
@@ -30,20 +31,18 @@ async function handle(request: Request, context: Context) {
         if (!resource) {
             if (method === 'GET') {
                 const autos = result(await db.from('automations').select('*').order('created_at', { ascending: false }));
-                const counts = result(await db.rpc('automation_stats')) as {
-                    automation_id: string;
-                    status: string;
-                    count: number;
-                }[];
                 const mediaIds = autos.map((a) => a.media_id).filter(Boolean);
-                const reels = mediaIds.length ? result(await db.from('reels').select('instagram_id,title,cover_url').in('instagram_id', mediaIds)) : [];
-                return json(autos.map((a) => ({ ...a, stats: Object.fromEntries(counts.filter((c) => c.automation_id === a.id).map((c) => [c.status, Number(c.count)])), reel: reels.find((r) => r.instagram_id === a.media_id) })));
+                const [counts, reels] = await Promise.all([
+                    optionalAutomationData<{ automation_id: string; status: string; count: number }[]>(db.rpc('automation_stats'), [], 'Estadísticas'),
+                    mediaIds.length ? optionalAutomationData<{ instagram_id: string; title: string; cover_url: string | null }[]>(db.from('reels').select('instagram_id,title,cover_url').in('instagram_id', mediaIds), [], 'Portadas') : Promise.resolve({ data: [], warnings: [] }),
+                ]);
+                return json(autos.map((a) => ({ ...a, stats: Object.fromEntries(counts.data.filter((c) => c.automation_id === a.id).map((c) => [c.status, Number(c.count)])), reel: reels.data.find((r) => r.instagram_id === a.media_id) })), [...counts.warnings, ...reels.warnings]);
             }
             if (method === 'POST')
                 return json(result(await db.from('automations').insert(automationInput(await request.json())).select().single()));
         }
         if (resource === 'media' && method === 'GET')
-            return json({ reels: result(await db.from('reels').select('instagram_id,title,cover_url,published_at,views').order('published_at', { ascending: false }).limit(200)).filter((r) => /^\d{1,18}$/.test(r.instagram_id || '')), pending: result(await db.from('publish_queue').select('id,caption,scheduled_at').eq('status', 'pending').order('scheduled_at', { ascending: true })) });
+            return json(await loadAutomationMedia(db));
         if (resource === 'events') {
             if (method === 'GET') {
                 let query = db.from('automation_events').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1);
@@ -71,9 +70,11 @@ async function handle(request: Request, context: Context) {
         if (resource === 'leads') {
             if (method === 'GET' && !id) {
                 let query = db.from('leads').select('*,lead_tag_assignments(tag_id,lead_tags(id,name))').order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
-                const search = (q.get('search') || '').replace(/[%_]/g, '').slice(0, 100);
+                const search = leadSearchFilter(q.get('search') || '');
                 if (search)
-                    query = query.ilike('username', `%${search}%`);
+                    query = query.or(search);
+                if (q.get('starred') === 'true')
+                    query = query.eq('starred', true);
                 if (q.get('qualification'))
                     query = query.eq('qualification', q.get('qualification'));
                 if (q.get('tag')) {
@@ -86,8 +87,15 @@ async function handle(request: Request, context: Context) {
                         lead_tags: unknown;
                     }) => a.lead_tags) })));
             }
-            if (id && method === 'GET')
-                return json({ lead: result(await db.from('leads').select('*').eq('id', uuid(id)).single()), messages: result(await db.from('lead_messages').select('*').eq('lead_id', id).order('received_at', { ascending: false }).limit(50)), events: result(await db.from('automation_events').select('*').eq('lead_id', id).order('created_at', { ascending: false }).limit(50)), enrollments: result(await db.from('followup_enrollments').select('*,followup_sequences(name),followup_jobs(*)').eq('lead_id', id).order('created_at', { ascending: false }).limit(50)) });
+            if (id && method === 'GET') {
+                const lead = result(await db.from('leads').select('*').eq('id', uuid(id)).single());
+                const [messages, events, enrollments] = await Promise.all([
+                    optionalAutomationData(db.from('lead_messages').select('*').eq('lead_id', id).order('received_at', { ascending: false }).limit(50), [], 'Mensajes'),
+                    optionalAutomationData(db.from('automation_events').select('*').eq('lead_id', id).order('created_at', { ascending: false }).limit(50), [], 'Actividad'),
+                    optionalAutomationData(db.from('followup_enrollments').select('*,followup_sequences(name),followup_jobs(*)').eq('lead_id', id).order('created_at', { ascending: false }).limit(50), [], 'Seguimientos'),
+                ]);
+                return json({ lead, messages: messages.data, events: events.data, enrollments: enrollments.data, warnings: [...messages.warnings, ...events.warnings, ...enrollments.warnings] });
+            }
             if (id && action === 'tags') {
                 const tag = uuid(object(await request.json()).tag_id);
                 if (method === 'POST') {
@@ -153,8 +161,12 @@ async function handle(request: Request, context: Context) {
         const error = e as Error & {
             code?: string;
         };
-        const missing = ['42P01', 'PGRST205', 'PGRST202'].includes(error.code || '');
-        return Response.json({ error: missing ? 'Falta ejecutar supabase_migration_automations.sql' : error instanceof InputError || error.code === 'P0001' ? error.message : error.code === '23505' ? 'Ya existe ese registro' : 'No se pudo completar la operación', migrationNeeded: missing }, { status: missing ? 428 : error instanceof InputError || error instanceof SyntaxError ? 400 : ['23505', 'P0001'].includes(error.code || '') ? 409 : 500 });
+        if (error instanceof InputError || error instanceof SyntaxError)
+            return Response.json({ error: error instanceof SyntaxError ? 'El cuerpo de la solicitud no es un JSON válido' : error.message }, { status: 400 });
+        if (error.code === 'P0001')
+            return Response.json({ error: error.message }, { status: 409 });
+        const { status, ...body } = automationDataError(error, resource);
+        return Response.json(body, { status });
     }
 }
 export { handle as GET, handle as POST, handle as PATCH, handle as DELETE };

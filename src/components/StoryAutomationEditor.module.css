@@ -1,0 +1,25 @@
+.form { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.intro { color: var(--text-secondary); font-size: .9rem; line-height: 1.6; }
+.form .fields { display: flex; flex-direction: column; gap: 20px; padding: 0; margin: 0; min-width: 0; border: 0; }
+.label { display: flex; flex-direction: column; gap: 8px; color: var(--text-primary); font-size: .9rem; font-weight: 500; }
+.label .input,.label .textarea { width: 100%; min-width: 0; max-width: 100%; padding: 11px 13px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--card-elevated); color: var(--text-primary); font: inherit; }
+.label .textarea { min-height: 130px; resize: vertical; line-height: 1.5; }
+.hint { color: var(--text-secondary); font-size: .8rem; font-weight: 400; line-height: 1.6; }
+.counter { align-self: flex-end; color: var(--text-secondary); font-size: .75rem; font-weight: 400; }
+.match,.section { display: flex; flex-direction: column; gap: 14px; }
+.section { padding-top: 18px; border-top: 1px solid var(--card-border); }
+.section h3 { font-size: 1rem; margin: 0; }
+.form .tags { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--card-border); border-radius: var(--radius-md); }
+.tags legend { padding: 0 7px; font-size: .9rem; font-weight: 600; }
+.tagList { display: flex; gap: 12px 18px; flex-wrap: wrap; }
+.form .check { display: flex; flex-direction: row; align-items: center; gap: 9px; color: var(--text-primary); font-size: .9rem; font-weight: 400; line-height: 1.5; }
+.check input { accent-color: var(--accent-primary); flex-shrink: 0; }
+.error { padding: 12px 14px; border: 1px solid var(--accent-negative); border-radius: var(--radius-sm); color: var(--accent-negative); font-size: .9rem; line-height: 1.5; }
+.footer { display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--card-border); padding-top: 18px; }
+.footer button { padding: 11px 15px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); font: inherit; font-size: .9rem; cursor: pointer; }
+.footer .primary { background: var(--accent-strong); color: var(--on-accent); }
+.footer .primary:hover { background: var(--accent-hover); }
+.footer .cancel { background: var(--card-elevated); color: var(--text-primary); }
+.footer .cancel:hover { background: var(--hover-bg); }
+.footer button:disabled { opacity: .5; cursor: wait; }
+@media(max-width: 480px) { .footer button { flex: 1 1 160px; } }

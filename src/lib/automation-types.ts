@@ -30,6 +30,8 @@ export interface Tag {
 }
 export interface Lead {
     id: string;
+    display_name: string | null;
+    starred: boolean;
     instagram_user_id: string;
     username: string | null;
     qualification: string;

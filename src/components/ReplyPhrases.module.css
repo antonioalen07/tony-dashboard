@@ -1,0 +1,14 @@
+.field { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--text-primary); font-size: .9rem; font-weight: 600; }
+.count,.hint,.characters { color: var(--text-secondary); font-size: .8rem; font-weight: 400; line-height: 1.5; }
+.list { display: flex; flex-direction: column; gap: 9px; }
+.row { display: flex; align-items: flex-start; gap: 8px; }
+.inputWrap { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.inputWrap .input { width: 100%; min-width: 0; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--card-elevated); color: var(--text-primary); font: inherit; padding: 10px 12px; }
+.characters { text-align: right; font-size: .72rem; }
+.row .remove { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 42px; flex-shrink: 0; padding: 0; background: transparent; border: 1px solid var(--card-border); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; }
+.row .remove:hover { background: var(--hover-bg); color: var(--accent-negative); }
+.field .add { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--card-elevated); color: var(--text-primary); font: inherit; font-size: .85rem; cursor: pointer; }
+.field .add:hover { background: var(--hover-bg); }
+.field .add:disabled { opacity: .5; cursor: default; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

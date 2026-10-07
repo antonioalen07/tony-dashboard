@@ -27,7 +27,7 @@ test('worker: DM exitoso no se repite por respuesta pública fallida; ventana y 
  const tables={
   automations:[{id:'a',active:true,scope:'media',media_id:'media',dm_text:'Hola',dm_link_url:null,once_per_user:true,reply_enabled:true,reply_texts:['Listo']}],
   automation_events:[{id:'e1',automation_id:'a',status:'queued',commenter_id:'visitor',comment_id:'c1',comment_at:now,attempts:0}],
-  leads:[{id:'lead',instagram_user_id:'visitor',qualification:'qualified',opted_out:false,last_inbound_at:now},{id:'closed',instagram_user_id:'other',qualification:'qualified',last_inbound_at:new Date(Date.now()-86400000).toISOString()}],
+  leads:[{id:'lead',instagram_user_id:'visitor',ig_account_id:'owner',qualification:'qualified',opted_out:false,last_inbound_at:now},{id:'closed',instagram_user_id:'other',ig_account_id:'owner',qualification:'qualified',last_inbound_at:new Date(Date.now()-86400000).toISOString()}],
   followup_sequences:[{id:'s',active:true,required_tag_ids:[],qualified_only:true}],
   followup_enrollments:[{id:'en',status:'active',sequence_id:'s',lead_id:'lead'},{id:'en2',status:'active',sequence_id:'s',lead_id:'closed'}],
   followup_jobs:[{id:'j1',status:'queued',attempts:0,enrollment_id:'en',step:{kind:'audio',audio_url:'https://example.com/a.mp3'}},{id:'j2',status:'queued',attempts:0,enrollment_id:'en2',step:{kind:'text',text:'Hola'}}],
@@ -42,7 +42,7 @@ test('worker: DM exitoso no se repite por respuesta pública fallida; ventana y 
   return new Response(JSON.stringify({access_token:'test-token'}));
  };
  try {
-  const db=memoryDb(tables);const ctx={supabase:db,env:{META_ACCESS_TOKEN:'test',META_PAGE_ID:'page'},log:()=>{}};
+  const db=memoryDb(tables);const ctx={supabase:db,env:{META_ACCESS_TOKEN:'test',META_PAGE_ID:'page',META_IG_ACCOUNT_ID:'owner'},log:()=>{}};
   await run(ctx);
   assert.equal(tables.automation_events[0].status,'sent');assert.match(tables.automation_events[0].error,/Respuesta pública/);
   assert.equal(tables.followup_jobs[0].status,'sent');assert.equal(tables.followup_jobs[1].status,'blocked');assert.equal(tables.followup_enrollments[0].status,'completed');assert.equal(sends,2);

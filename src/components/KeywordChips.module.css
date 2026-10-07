@@ -1,0 +1,14 @@
+.field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.label { color: var(--text-primary); font-size: .9rem; font-weight: 600; }
+.control { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 10px; min-height: 48px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--card-elevated); }
+.control:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.invalid { border-color: var(--accent-negative); }
+.chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; border: 1px solid var(--surface-border); border-radius: 999px; background: var(--accent-soft); color: var(--text-primary); padding: 4px 5px 4px 10px; font-size: .85rem; }
+.chip > span { overflow-wrap: anywhere; min-width: 0; }
+.chip .remove { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.chip .remove:hover { background: var(--hover-bg); color: var(--text-primary); }
+.control .input { flex: 1 1 180px; width: 100%; min-width: 100px; max-width: 100%; border: 0; border-radius: 0; outline: none; padding: 6px 3px; background: transparent; color: var(--text-primary); font: inherit; font-size: .9rem; }
+.input::placeholder { color: var(--text-secondary); }
+.hint { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }
+.hint > span { white-space: nowrap; }
+.error { color: var(--accent-negative); font-size: .85rem; line-height: 1.5; }

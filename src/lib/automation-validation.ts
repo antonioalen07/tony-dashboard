@@ -61,6 +61,13 @@ export function leadInput(value: unknown) {
     }
     if ('opted_out' in b)
         out.opted_out = bool(b.opted_out, false);
+    if ('starred' in b)
+        out.starred = bool(b.starred, false);
+    if ('display_name' in b) {
+        if (b.display_name !== null && (typeof b.display_name !== 'string' || b.display_name.length > 120))
+            fail('Nombre: máximo 120 caracteres');
+        out.display_name = typeof b.display_name === 'string' ? b.display_name.trim() || null : null;
+    }
     if ('notes' in b) {
         if (typeof b.notes !== 'string' || b.notes.length > 10000)
             fail('Notas: máximo 10000 caracteres');
@@ -69,3 +76,14 @@ export function leadInput(value: unknown) {
     return out;
 }
 export const tagName = (v: unknown) => text(v, 'Etiqueta', 60);
+export function storyInput(value: unknown) {
+    const b = object(value);
+    if (!['contains', 'exact'].includes(String(b.match_mode))) fail('Modo de coincidencia inválido');
+    const dm_audio_url = url(b.dm_audio_url);
+    if (dm_audio_url && b.dm_text) fail('Elegí texto o audio para esta respuesta');
+    const dm_text = dm_audio_url ? '' : text(b.dm_text, 'Mensaje', 1000);
+    const starts_at = b.starts_at === undefined ? new Date().toISOString() : String(b.starts_at);
+    if (!Number.isFinite(Date.parse(starts_at))) fail('Fecha de inicio inválida');
+    return { name: text(b.name, 'Nombre', 120), active: bool(b.active, true), keywords: list(b.keywords || []), match_mode: b.match_mode,
+        fuzzy: bool(b.fuzzy, true), dm_text, dm_audio_url, tag_ids: list(b.tag_ids || [], true), once_per_user: bool(b.once_per_user, true), starts_at, updated_at: new Date().toISOString() };
+}

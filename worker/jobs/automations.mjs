@@ -1,5 +1,6 @@
 import { checked, enqueueComment, windowOpen, messagePayload } from '../lib/automation-core.mjs';
 import { createMeta } from '../lib/meta.mjs';
+import { deliverCrm } from '../lib/crm.mjs';
 export const name = 'automations';
 export const intervalMs = 15_000;
 let lastPoll = 0;
@@ -75,6 +76,7 @@ async function followup(db, id) {
   const l = await row(db, 'leads', e.lead_id);
   let reason;
   if (e.status !== 'active' || !s.active) reason = 'Secuencia pausada o cancelada';
+  else if (!l.instagram_user_id || l.ig_account_id !== meta.accountId) reason = 'El contacto no corresponde al Instagram conectado';
   else if (!windowOpen(l)) reason = l.opted_out ? 'El contacto pidió no recibir mensajes' : 'Ventana de 24 horas cerrada';
   else if (s.qualified_only && l.qualification !== 'qualified' && l.qualification !== 'customer') reason = 'El contacto no está calificado';
   else {
@@ -106,15 +108,16 @@ export async function run({ supabase: db, env, log }) {
   for (let i = 0; i < 10; i++) {
     const claim = checked(await db.rpc('automation_claim', { p_limit: hourly }));
     if (!claim) break;
-    const table = claim.kind === 'comment' ? 'automation_events' : 'followup_jobs';
-    try { await (claim.kind === 'comment' ? comment : followup)(db, claim.id); }
+    const table = { comment: 'automation_events', followup: 'followup_jobs', story: 'story_automation_events', inbox: 'inbox_outbox' }[claim.kind];
+    if (!table) throw new Error('Tipo de envío desconocido');
+    try { if (claim.kind === 'story' || claim.kind === 'inbox') await deliverCrm(db, meta, claim.kind, claim.id); else await (claim.kind === 'comment' ? comment : followup)(db, claim.id); }
     catch (error) {
       const current = await row(db, table, claim.id);
       // Un DM confirmado nunca se reenvía por un error posterior.
       if (current.status === 'sent') { log(`[automations] Resultado registrado; error posterior: ${error.message}`); continue; }
       const attempts = current.attempts + 1;
       const status = error.uncertain || !(error.transient || error.code) ? 'uncertain' : error.transient && attempts < 4 ? 'queued' : 'failed';
-      await update(db, table, claim.id, { status, attempts, error: error.message, ...(status === 'queued' ? { [table === 'automation_events' ? 'next_attempt_at' : 'due_at']: new Date(Date.now() + 2 ** attempts * 60000).toISOString() } : {}) });
+      await update(db, table, claim.id, { status, attempts, error: error.message, ...(status === 'queued' ? { [table === 'followup_jobs' ? 'due_at' : 'next_attempt_at']: new Date(Date.now() + 2 ** attempts * 60000).toISOString() } : {}) });
     }
     processed++;
   }

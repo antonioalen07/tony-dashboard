@@ -2,7 +2,8 @@
 
 Es una sección de BAKO y reutiliza su integración existente con la app de Meta
 **Marca Tony Dashboard**. El código incluye comment-to-DM con respuesta pública opcional, contactos,
-etiquetas libres, calificación y secuencias de texto o audio. Los envíos reales
+etiquetas libres, calificación, respuestas a historias, bandeja con texto/audio,
+notas, destacados y secuencias de texto o audio. Los envíos reales
 quedan pendientes de tu prueba desde otra cuenta de Instagram.
 
 ## 1. Base de datos
@@ -11,6 +12,15 @@ Pegá `supabase_migration_automations.sql` completo en el SQL Editor de Supabase
 Es reejecutable y también agrega las columnas nuevas sobre la migración v1 del
 plan original. Tablas y funciones quedan cerradas a anon/authenticated; la app
 y el worker necesitan `SUPABASE_SERVICE_ROLE_KEY`.
+
+Después ejecutá **`supabase_migration_automations_crm.sql`**. Si ya corriste la base,
+sólo necesitás este segundo archivo. Adapta la tabla `leads` previa (de auditoría),
+conserva sus datos y permite contactos de Instagram sin email. El SQL inicial
+usaba `CREATE TABLE IF NOT EXISTS`, que no agregaba columnas a esa tabla existente;
+por eso fallaba la carga de seguimientos y la pantalla descartaba también los reels.
+
+Si reejecutás ambas migraciones, mantené siempre el orden **base → CRM**, porque
+la segunda amplía los RPC de envío compartidos con la bandeja e historias.
 
 Si falta la migración, la pantalla muestra un banner y las APIs devuelven 428.
 
@@ -35,7 +45,7 @@ cadena independiente para verificar el callback; si ya la configuraste en Vercel
 y Meta, reutilizá el mismo valor. Si no existe, creala y guardala en ambos lados.
 No uses el token permanente de acceso como verify token ni compartas las claves
 en el navegador. El cupo se comparte entre
-Private Replies y seguimientos. `AUTOMATION_MAX_DM_PER_HOUR=0` suspende los envíos.
+Private Replies, seguimientos, historias y bandeja. `AUTOMATION_MAX_DM_PER_HOUR=0` suspende los envíos.
 La variable `PUBLISH_DRY_RUN` del publicador de videos no controla estos mensajes.
 
 ### Estado comprobado en Meta (6-oct-2026)
@@ -96,7 +106,27 @@ El script imprime el endpoint que funcionó. Si sólo funciona `ig-user-id/messa
 configurá `META_MESSAGING_ENDPOINT=instagram` en el worker y redeployalo. El worker
 no cambia de endpoint ni repite solicitudes ante resultados ambiguos.
 
-## Seguimientos y estados
+## Bandeja e historias
+
+- En **Historias**, creá reglas para respuestas a tus historias. Una regla con
+  palabras clave tiene prioridad sobre otra sin palabras; sólo se elige una
+  respuesta por evento. Sin palabras, responde a cualquier respuesta de historia.
+- El webhook detecta `message.reply_to.story.id`; un DM común no dispara estas reglas.
+- **Bandeja** muestra mensajes entrantes recibidos desde la activación del webhook,
+  audios/adjuntos y salidas del módulo. No importa conversaciones históricas de Instagram.
+- Podés buscar por nombre, usuario o notas, filtrar por etiqueta/calificación y
+  destacar un lead. La ficha permite editar nombre, notas, etiquetas y calificación.
+- Texto, URL de audio, archivo de audio o grabación se agregan a una cola persistente;
+  la pantalla diferencia En cola, Enviando, Enviado, Bloqueado, Falló e Incierto.
+  Meta confirma la entrega; aceptar un mensaje en la cola no implica que se haya enviado.
+- La grabación pide permiso de micrófono únicamente en Automatizaciones y convierte
+  el audio a WAV mono. La subida valida firma/MIME (MP3/M4A/WAV/AAC) y un máximo de 4 MB.
+  Los archivos se guardan en `studio/crm-audio/`,
+  fuera de los prefijos que limpia la retención de videos.
+- La bandeja y las historias vuelven a validar cuenta, baja y ventana de 24 horas
+  justo antes de enviar. No se envían mensajes por marcar o etiquetar un contacto.
+
+## Seguimientos y estados de envío
 
 - Podés inscribir manualmente desde un contacto o activar inscripción automática
   en la secuencia según calificación y todas las etiquetas seleccionadas.

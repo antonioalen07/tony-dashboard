@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:automations": "node --test worker/lib/*.test.mjs",
+    "test:automations": "node --test worker/lib/*.test.mjs src/lib/automation-data.test.mjs scripts/test_crm_audio.mjs",
     "test:automations:http": "node scripts/test_automation_http.mjs",
-    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/components/AutomationShortcut.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs"
+    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/lib/automation-data.ts src/lib/crm-audio.ts src/components/AutomationShortcut.tsx src/components/AutomationInbox.tsx src/components/KeywordChips.tsx src/components/ReplyPhrases.tsx src/components/StoryAutomationEditor.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs scripts/test_crm_audio.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",
