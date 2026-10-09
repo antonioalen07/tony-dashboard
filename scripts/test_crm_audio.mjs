@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pcmWav } from '../src/lib/crm-audio.ts';
+import { pcmWav, prepareAudioFile } from '../src/lib/crm-audio.ts';
 
 test('WAV incluye encabezado mono PCM, frecuencia, longitud y amplitudes sin desbordar', () => {
   const file = pcmWav(new Float32Array([-2, -1, 0, 1, 2, Number.NaN]));
@@ -24,4 +24,47 @@ test('dos minutos de audio están bajo el límite de upload y rechaza mayor dura
   assert.throws(() => pcmWav(new Float32Array(16000 * 120 + 1)), /2 minutos/);
   assert.throws(() => pcmWav(new Float32Array()), /2 minutos/);
   assert.throws(() => pcmWav(new Float32Array(10), 1), /Frecuencia/);
+});
+
+test('archivos de tipo vacío se normalizan por extensión y archivos inválidos se rechazan', async () => {
+  const wav = new File([pcmWav(new Float32Array([0, 0.5]))], 'grabacion.WAV');
+  const prepared = await prepareAudioFile(wav);
+  assert.equal(prepared.type, 'audio/wav');
+  assert.equal(prepared.size, wav.size);
+  await assert.rejects(prepareAudioFile(new File([], 'empty.wav')), /vacío/);
+  await assert.rejects(prepareAudioFile(new File([new Uint8Array(4_000_001)], 'big.wav', { type: 'audio/wav' })), /4 MB/);
+  await assert.rejects(prepareAudioFile(new File(['invalid'], 'fake.txt', { type: 'text/plain' })), /MP3, OGG/);
+});
+
+test('MP3 y OGG usan decodificación local y salen como WAV compatible, liberando AudioContext', async () => {
+  const original = { AudioContext: globalThis.AudioContext, OfflineAudioContext: globalThis.OfflineAudioContext };
+  let closed = 0; let decoded = 0;
+  globalThis.AudioContext = class {
+    async decodeAudioData() { decoded++; return { duration: 0.1 }; }
+    async close() { closed++; }
+  };
+  globalThis.OfflineAudioContext = class {
+    createBufferSource() { return { connect() {}, start() {} }; }
+    async startRendering() { return { getChannelData: () => new Float32Array([0.1, -0.1]) }; }
+  };
+  try {
+    for (const [name, type] of [['audio.mp3', 'audio/mpeg'], ['audio.ogg', 'audio/ogg'], ['audio.ogg', 'application/ogg']]) {
+      const prepared = await prepareAudioFile(new File(['fixture'], name, { type }));
+      assert.equal(prepared.type, 'audio/wav');
+      assert.match(prepared.name, /\.wav$/);
+      assert.equal(new TextDecoder().decode((await prepared.arrayBuffer()).slice(0, 4)), 'RIFF');
+    }
+    assert.equal(decoded, 3); assert.equal(closed, 3);
+  } finally { Object.assign(globalThis, original); }
+});
+
+test('audio que el navegador no puede decodificar da error accionable y libera recursos', async () => {
+  const original = { AudioContext: globalThis.AudioContext, OfflineAudioContext: globalThis.OfflineAudioContext };
+  let closed = false;
+  globalThis.AudioContext = class { async decodeAudioData() { throw new Error('Invalid encoding'); } async close() { closed = true; } };
+  globalThis.OfflineAudioContext = class {};
+  try {
+    await assert.rejects(prepareAudioFile(new File(['invalid'], 'audio.ogg', { type: 'audio/ogg' })), /No se pudo leer/);
+    assert.equal(closed, true);
+  } finally { Object.assign(globalThis, original); }
 });

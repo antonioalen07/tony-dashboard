@@ -1,0 +1,5 @@
+.attachment { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.help { margin:0; color:var(--text-secondary); font-size:.85rem; line-height:1.5; }
+.filename { margin:0; color:var(--text-primary); font-size:.85rem; overflow-wrap:anywhere; }
+.error { margin:0; color:var(--accent-negative); font-size:.85rem; }
+.player { width:100%; }

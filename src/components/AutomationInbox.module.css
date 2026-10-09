@@ -92,6 +92,15 @@
 .sendRow { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .sendRow>span { font-size:.7rem; }
 .inbox .sendButton { flex-shrink:0; padding:10px 14px; }
+.inbox .composer button:disabled { cursor:not-allowed; }
+.inbox .composer .disabled { cursor:not-allowed; }
+.audioLink { font-size:.8rem; }
+.audioLink summary { cursor:pointer; color:var(--text-secondary); padding:4px 0; }
+.audioLink label { margin-top:8px; }
+.deliveryControls { display:flex; flex-wrap:wrap; gap:10px; }
+.deliveryControls label { display:flex; flex-direction:column; gap:6px; font-size:.75rem; flex:1 1 180px; }
+.scheduledMessage { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:.75rem; color:var(--text-secondary); }
+.inbox .cancelMessage { margin-top:8px; padding:5px 8px; font-size:.72rem; background:transparent; }
 .srOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 @media(max-width:1280px) {
     .layout { grid-template-columns:255px minmax(0,1fr); height:750px; }

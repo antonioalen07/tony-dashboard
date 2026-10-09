@@ -7,11 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:automations": "node --test worker/lib/*.test.mjs src/lib/automation-data.test.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs",
+    "test:automations": "node --test worker/lib/*.test.mjs src/lib/automation-data.test.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs scripts/test_inbox_scheduling.mjs scripts/test_followup_delay.mjs",
     "test:variants": "node --test scripts/test_variant_caption.mjs scripts/test_variant_caption_ui.mjs worker/lib/publisher-caption.test.mjs",
     "lint:variants": "eslint src/app/variantes src/app/api/variants src/lib/variant-caption.ts src/lib/studio-types.ts worker/jobs/publisher.mjs worker/lib/publisher-caption.test.mjs scripts/test_variant_caption.mjs scripts/test_variant_caption_ui.mjs",
     "test:automations:http": "node scripts/test_automation_http.mjs",
-    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/lib/automation-data.ts src/lib/crm-audio.ts src/components/AutomationShortcut.tsx src/components/AutomationInbox.tsx src/components/AutomationConnection.tsx src/components/KeywordChips.tsx src/components/ReplyPhrases.tsx src/components/StoryAutomationEditor.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs"
+    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/lib/automation-data.ts src/lib/crm-audio.ts src/components/AutomationShortcut.tsx src/components/AutomationInbox.tsx src/components/AutomationConnection.tsx src/components/KeywordChips.tsx src/components/ReplyPhrases.tsx src/components/StoryAutomationEditor.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs src/lib/inbox-schedule.ts src/lib/followup-delay.ts src/components/AutomationAudioAttachment.tsx scripts/test_inbox_scheduling.mjs scripts/test_followup_delay.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",

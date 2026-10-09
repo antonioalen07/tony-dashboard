@@ -1,6 +1,28 @@
 const SAMPLE_RATE = 16_000;
 const MAX_SECONDS = 120;
 
+const FILE_TYPES: Record<string, string> = {
+    mp3: 'audio/mpeg', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+    m4a: 'audio/mp4', mp4: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac',
+};
+
+/** MP3 y OGG se convierten a WAV para entregar un adjunto compatible con Instagram. */
+export async function prepareAudioFile(file: File): Promise<File> {
+    if (!file.size) throw new Error('El archivo de audio está vacío.');
+    if (file.size > 4_000_000) throw new Error('El audio debe pesar hasta 4 MB.');
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const mime = file.type.split(';')[0].toLowerCase();
+    const inferred = FILE_TYPES[extension];
+    const type = mime === '' || mime === 'application/octet-stream' ? inferred : mime;
+    if (!type || !['audio/mpeg', 'audio/mp3', 'audio/ogg', 'application/ogg', 'audio/opus', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/wav', 'audio/x-wav'].includes(type)) {
+        throw new Error('Elegí un audio MP3, OGG, M4A, WAV o AAC.');
+    }
+    if (['audio/mpeg', 'audio/mp3', 'audio/ogg', 'application/ogg', 'audio/opus'].includes(type)) {
+        return recordedAudioWav(file);
+    }
+    return file.type === type ? file : new File([file], file.name, { type });
+}
+
 /** WAV PCM mono de 16 bits; 120 s a 16 kHz ocupan menos de 4 MB. */
 export function pcmWav(samples: Float32Array, sampleRate = SAMPLE_RATE): ArrayBuffer {
     if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 48_000) throw new Error('Frecuencia de audio inválida.');
@@ -21,10 +43,12 @@ export function pcmWav(samples: Float32Array, sampleRate = SAMPLE_RATE): ArrayBu
 
 /** Convierte la grabación del navegador a un formato de audio reproducible por Meta. */
 export async function recordedAudioWav(blob: Blob): Promise<File> {
-    if (typeof AudioContext === 'undefined' || typeof OfflineAudioContext === 'undefined') throw new Error('Este navegador no puede preparar la grabación. Adjuntá un audio MP3, M4A, WAV o AAC.');
+    if (typeof AudioContext === 'undefined' || typeof OfflineAudioContext === 'undefined') throw new Error('Este navegador no puede preparar este audio. Probá un archivo WAV, M4A o AAC.');
     const context = new AudioContext();
     try {
-        const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+        let decoded: AudioBuffer;
+        try { decoded = await context.decodeAudioData(await blob.arrayBuffer()); }
+        catch { throw new Error('No se pudo leer el audio. Probá un archivo MP3, OGG, WAV o M4A válido.'); }
         if (!decoded.duration || decoded.duration > MAX_SECONDS + 0.5) throw new Error('La grabación debe durar hasta 2 minutos.');
         const length = Math.min(SAMPLE_RATE * MAX_SECONDS, Math.ceil(decoded.duration * SAMPLE_RATE));
         const offline = new OfflineAudioContext(1, length, SAMPLE_RATE);

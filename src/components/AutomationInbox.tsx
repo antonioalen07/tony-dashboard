@@ -2,9 +2,10 @@
 /* Las imágenes de conversaciones llegan desde URLs temporales de Instagram. */
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, Square, Star, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, Square, Star, X } from 'lucide-react';
 import type { Tag } from '@/lib/automation-types';
-import { recordedAudioWav } from '@/lib/crm-audio';
+import { prepareAudioFile, recordedAudioWav } from '@/lib/crm-audio';
+import { localDateTime, scheduledSendAt } from '@/lib/inbox-schedule';
 import MigrationBanner from '@/components/MigrationBanner';
 import styles from './AutomationInbox.module.css';
 
@@ -31,6 +32,7 @@ type Message = {
     status: string;
     error: string | null;
     created_at: string;
+    scheduled_at?: string | null;
 };
 type ConversationData = { lead: Contact; messages: Message[]; canReply: boolean; replyBlockedReason: string | null; truncated: boolean };
 type InboxData = { leads: Contact[]; total: number; hasMore: boolean };
@@ -147,6 +149,9 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const [preview, setPreview] = useState('');
     const [recording, setRecording] = useState(false);
     const [preparingAudio, setPreparingAudio] = useState(false);
+    const [requestingMicrophone, setRequestingMicrophone] = useState(false);
+    const [delivery, setDelivery] = useState<'now' | 'scheduled'>('now');
+    const [scheduledAt, setScheduledAt] = useState('');
     const [notice, setNotice] = useState('');
     const [clock, setClock] = useState(() => Date.now());
     const messagesRef = useRef<HTMLDivElement>(null);
@@ -159,6 +164,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const requestRef = useRef(0);
     const inFlightRef = useRef<InFlight | null>(null);
     const sendRef = useRef<{ signature: string; id: string } | null>(null);
+    const microphoneRequestRef = useRef(false);
     const refresh = useCallback((force = false) => {
         const key = `${id}:${limit}`;
         const pending = inFlightRef.current;
@@ -232,23 +238,31 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
             setTagName(''); await refresh(true); onChanged();
         } catch (e) { report(e); } finally { setSaving(false); }
     }
-    function chooseAudio(file: File | null) {
-        if (!file) return;
-        if (!['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/wav', 'audio/x-wav'].includes(file.type.split(';')[0])) { setError('Elegí un audio MP3, M4A, WAV o AAC.'); return; }
-        if (file.size > 4_000_000) { setError('El audio debe pesar hasta 4 MB.'); return; }
+    function setChosenAudio(file: File) {
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
         previewRef.current = URL.createObjectURL(file);
         setAudioFile(file); setAudioUrl(''); setPreview(previewRef.current); setError('');
+    }
+    async function chooseAudio(file: File | null) {
+        if (!file) return;
+        setPreparingAudio(true); setError('');
+        try {
+            const prepared = await prepareAudioFile(file);
+            if (aliveRef.current) setChosenAudio(prepared);
+        } catch (error) { if (aliveRef.current) report(error); }
+        finally { if (aliveRef.current) setPreparingAudio(false); }
     }
     function clearAudio() {
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
         previewRef.current = ''; setAudioFile(null); setPreview(''); setAudioUrl('');
     }
     async function startRecording() {
+        if (microphoneRequestRef.current || recording || preparingAudio || busy) return;
         setError(''); setNotice('');
         if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { setError('Este navegador no permite grabar. Podés adjuntar un audio o pegar su URL.'); return; }
         const policy = (document as Document & { permissionsPolicy?: { allowsFeature: (feature: string) => boolean }; featurePolicy?: { allowsFeature: (feature: string) => boolean } }).permissionsPolicy || (document as Document & { featurePolicy?: { allowsFeature: (feature: string) => boolean } }).featurePolicy;
         if (policy && !policy.allowsFeature('microphone')) { setError('La grabación no está habilitada en esta página. Podés adjuntar un audio o pegar su URL.'); return; }
+        microphoneRequestRef.current = true; setRequestingMicrophone(true);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             if (!aliveRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
@@ -269,7 +283,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 try {
                     if (!chunks.length) throw new Error('No se capturó audio. Volvé a grabar o adjuntá un archivo.');
                     const audio = await recordedAudioWav(new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' }));
-                    if (aliveRef.current) chooseAudio(audio);
+                    if (aliveRef.current) setChosenAudio(audio);
                 } catch (e) { if (aliveRef.current) report(e); }
                 finally { if (aliveRef.current) setPreparingAudio(false); }
             };
@@ -280,13 +294,17 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
             streamRef.current?.getTracks().forEach((track) => track.stop());
             setRecording(false);
             setError(e instanceof DOMException && ['NotAllowedError', 'SecurityError'].includes(e.name) ? 'No se habilitó el micrófono. Permití el acceso en el navegador o adjuntá un audio.' : 'No se pudo acceder al micrófono. Podés adjuntar un audio.');
-        }
+        } finally { microphoneRequestRef.current = false; if (aliveRef.current) setRequestingMicrophone(false); }
     }
     async function sendMessage(event: React.FormEvent) {
         event.preventDefault();
-        if (busy || recording || preparingAudio) return;
+        if (busy || recording || preparingAudio || requestingMicrophone) return;
         setBusy(true); setError(''); setNotice('');
         try {
+            if (delivery === 'scheduled' && !Number.isFinite(Date.parse(scheduledAt))) throw new Error('Elegí una fecha y hora válidas para programar el mensaje.');
+            const scheduled = delivery === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
+            const draftSignature = JSON.stringify({ ...(kind === 'text' ? { kind, text: text.trim() } : { kind, audio_url: audioUrl.trim() }), ...(scheduled ? { scheduled_at: scheduled } : {}) });
+            if (scheduled && (audioFile || sendRef.current?.signature !== draftSignature)) scheduledSendAt(scheduled);
             let url = audioUrl.trim();
             if (kind === 'audio' && audioFile) {
                 const form = new FormData(); form.set('file', audioFile);
@@ -295,17 +313,30 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 if (!response.ok) throw new Error(uploaded.error || 'No se pudo subir el audio.');
                 url = uploaded.url; setAudioUrl(url); setAudioFile(null);
             }
-            const payload = kind === 'text' ? { kind, text: text.trim() } : { kind, audio_url: url };
+            const payload = { ...(kind === 'text' ? { kind, text: text.trim() } : { kind, audio_url: url }), ...(scheduled ? { scheduled_at: scheduled } : {}) };
             const signature = JSON.stringify(payload);
-            if (sendRef.current?.signature !== signature) sendRef.current = { signature, id: crypto.randomUUID() };
+            if (sendRef.current?.signature !== signature) {
+                if (scheduled) scheduledSendAt(scheduled);
+                sendRef.current = { signature, id: crypto.randomUUID() };
+            }
             await api(`/inbox/${id}/messages`, 'POST', { ...payload, client_id: sendRef.current!.id });
-            sendRef.current = null; setText(''); clearAudio();
-            setNotice('Mensaje en cola. El estado se actualiza cuando se envía.');
+            sendRef.current = null; setText(''); clearAudio(); setDelivery('now'); setScheduledAt('');
+            setNotice(scheduled ? `Mensaje programado para ${date(scheduled)}. Podés cancelarlo mientras esté pendiente.` : 'Mensaje en cola. El estado se actualiza cuando se envía.');
             await refresh(true); onChanged();
         } catch (e) { report(e); } finally { setBusy(false); }
     }
     const expires = data?.lead.last_inbound_at ? Date.parse(data.lead.last_inbound_at) + 24 * 60 * 60_000 : 0;
     const canReply = Boolean(data?.canReply && expires > clock && !data.lead.opted_out);
+    const canSchedule = Boolean(data?.lead.instagram_user_id && !data.lead.opted_out);
+    const audioBusy = busy || preparingAudio || requestingMicrophone;
+    async function cancelMessage(message: Message) {
+        if (busy || !message.id.startsWith('outbox:')) return;
+        setBusy(true); setError('');
+        try {
+            await api(`/inbox/${id}/messages/${message.id.slice(7)}`, 'DELETE');
+            setNotice('Mensaje pendiente cancelado.'); await refresh(true); onChanged();
+        } catch (error) { report(error); } finally { setBusy(false); }
+    }
     return <div className={styles.conversation}>
         <div className={styles.conversationHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Volver a contactos"><ArrowLeft size={18} /></button><div><h3>{data ? label(data.lead) : 'Conversación'}</h3><span className={styles.muted}>{data?.lead.username && data.lead.display_name ? `@${data.lead.username} · ` : ''}Instagram</span></div>{data && <button className={`${styles.iconButton} ${data.lead.starred ? styles.starred : ''}`} type="button" disabled={saving} onClick={() => void patch({ starred: !data.lead.starred })} aria-label={data.lead.starred ? 'Quitar de destacados' : 'Destacar contacto'} aria-pressed={data.lead.starred}><Star size={19} fill={data.lead.starred ? 'currentColor' : 'none'} /></button>}</div>
         {error && <p className={styles.error} role="alert">{error}</p>}
@@ -336,20 +367,36 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                     })}
                     {!message.text && !message.audio_url && !message.attachments.length && <span className={styles.muted}>Mensaje de Instagram</span>}
                     <div className={styles.messageFooter}><time dateTime={message.created_at}>{date(message.created_at)}</time>{message.direction === 'outbound' && <span className={['failed', 'blocked', 'uncertain'].includes(message.status) ? styles.failed : ''}>{statuses[message.status] || message.status}</span>}</div>
+                    {message.scheduled_at && <p className={styles.scheduledMessage}><CalendarClock size={14} />Programado: {date(message.scheduled_at)}</p>}
+                    {message.id.startsWith('outbox:') && message.status === 'queued' && <button type="button" className={styles.cancelMessage} disabled={busy} onClick={() => void cancelMessage(message)}>Cancelar envío pendiente</button>}
                     {message.error && <p className={styles.messageError}>{message.error}</p>}
                 </div>)}
             </div>
             <form className={styles.composer} onSubmit={(event) => void sendMessage(event)}>
-                <p className={styles.windowNote}>{canReply ? `Podés responder hasta ${date(new Date(expires).toISOString())}.` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}</p>
-                <div className={styles.composerModes}><button type="button" className={kind === 'text' ? styles.selectedFilter : styles.button} disabled={busy || recording || preparingAudio} aria-pressed={kind === 'text'} onClick={() => setKind('text')}>Texto</button><button type="button" className={kind === 'audio' ? styles.selectedFilter : styles.button} disabled={busy || recording || preparingAudio} aria-pressed={kind === 'audio'} onClick={() => setKind('audio')}>Audio</button></div>
-                {kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={3} disabled={!canReply || busy} onChange={(event) => setText(event.target.value)} /><span className={styles.muted}>{text.length}/1000</span></label> : <div className={styles.audioComposer}>
-                    <label>URL pública del audio<input type="url" value={audioUrl} maxLength={2048} disabled={!canReply || busy || recording || preparingAudio || Boolean(audioFile)} placeholder="https://…" onChange={(event) => setAudioUrl(event.target.value)} /></label>
-                    <div className={styles.row}><label className={`${styles.uploadButton} ${!canReply || busy || recording || preparingAudio ? styles.disabled : ''}`}><Paperclip size={15} />Adjuntar audio<input type="file" accept="audio/mpeg,audio/mp4,audio/aac,audio/wav,audio/x-wav,.mp3,.m4a,.wav,.aac" disabled={!canReply || busy || recording || preparingAudio} onChange={(event) => { chooseAudio(event.target.files?.[0] || null); event.target.value = ''; }} /></label><button className={styles.button} type="button" disabled={!canReply || busy || preparingAudio} onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>{recording ? <><Square size={14} />Terminar grabación</> : <><Mic size={15} />Grabar audio</>}</button>{recording && <span className={styles.recording} role="status">Grabando…</span>}{preparingAudio && <span className={styles.muted} role="status">Preparando audio…</span>}</div>
-                    {preview && <div className={styles.preview}><audio controls preload="none" src={preview} /><span className={styles.muted}>{audioFile?.name || 'Audio adjunto'}</span><button type="button" className={styles.iconButton} disabled={busy || recording} onClick={clearAudio} aria-label="Quitar audio adjunto"><X size={16} /></button></div>}
+                <p className={styles.windowNote}>{canReply ? `Envío inmediato disponible hasta ${date(new Date(expires).toISOString())}.` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}{!canReply && ' Podés preparar un texto o audio sin enviarlo.'}</p>
+                <div className={styles.composerModes}>
+                    <button type="button" className={kind === 'text' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'text'} onClick={() => setKind('text')}>Texto</button>
+                    <button type="button" className={kind === 'audio' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => setKind('audio')}>Audio</button>
+                </div>
+                {kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={3} disabled={busy} onChange={(event) => setText(event.target.value)} /><span className={styles.muted}>{text.length}/1000</span></label> : <div className={styles.audioComposer}>
+                    <div className={styles.row}>
+                        <label className={`${styles.uploadButton} ${audioBusy || recording ? styles.disabled : ''}`}><Paperclip size={15} />Cargar archivo<input aria-label="Cargar archivo de audio" type="file" accept="audio/mpeg,audio/ogg,application/ogg,audio/mp4,audio/aac,audio/wav,.mp3,.ogg,.oga,.opus,.m4a,.wav,.aac" disabled={audioBusy || recording} onChange={(event) => { void chooseAudio(event.target.files?.[0] || null); event.target.value = ''; }} /></label>
+                        <button className={styles.button} type="button" disabled={audioBusy} onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>{recording ? <><Square size={14} />Terminar grabación</> : <><Mic size={15} />{requestingMicrophone ? 'Esperando permiso…' : 'Grabar audio'}</>}</button>
+                        {recording && <span className={styles.recording} role="status">Grabando · máximo 2 minutos</span>}
+                        {requestingMicrophone && <span className={styles.muted} role="status">Habilitá el micrófono en el aviso del navegador.</span>}
+                        {preparingAudio && <span className={styles.muted} role="status">Preparando audio…</span>}
+                    </div>
+                    {preview && <div className={styles.preview}><audio controls preload="metadata" src={preview} /><span className={styles.muted}>{audioFile?.name || 'Audio adjunto'}</span><button type="button" className={styles.iconButton} disabled={audioBusy || recording} onClick={clearAudio} aria-label="Quitar audio adjunto"><X size={16} /></button></div>}
+                    <details className={styles.audioLink}><summary>Usar un enlace de audio</summary><label>URL pública del audio<input type="url" value={audioUrl} maxLength={2048} disabled={audioBusy || recording || Boolean(audioFile)} placeholder="https://…" onChange={(event) => setAudioUrl(event.target.value)} /></label></details>
                     {!preview && safeUrl(audioUrl) && <audio controls preload="none" src={safeUrl(audioUrl)!} />}
-                    <span className={styles.muted}>MP3, M4A, WAV o AAC, hasta 4 MB. La grabación se detiene a los 2 minutos y se prepara como WAV. Podés escuchar el audio antes de enviarlo.</span>
+                    <span className={styles.muted}>MP3, OGG, M4A, WAV o AAC, hasta 4 MB. MP3, OGG y grabaciones se preparan como WAV de hasta 2 minutos. Escuchalo antes de enviarlo.</span>
                 </div>}
-                <div className={styles.sendRow}><span className={styles.muted}>Los mensajes aparecen en el historial con su estado.</span><button type="submit" className={styles.sendButton} disabled={!canReply || busy || recording || preparingAudio || (kind === 'text' ? !text.trim() : !audioFile && !audioUrl.trim())}><Send size={16} />{busy ? 'Preparando…' : 'Enviar'}</button></div>
+                <div className={styles.deliveryControls}>
+                    <label>Cuándo enviar<select aria-label="Cuándo enviar el mensaje" value={delivery} disabled={audioBusy || recording} onChange={(event) => { const value = event.target.value as 'now' | 'scheduled'; setDelivery(value); if (value === 'scheduled' && !scheduledAt) setScheduledAt(localDateTime(Date.now() + 60 * 60_000)); }}><option value="now">Ahora</option><option value="scheduled">Elegir fecha y hora</option></select></label>
+                    {delivery === 'scheduled' && <label>Fecha y hora local<input type="datetime-local" aria-label="Fecha y hora del mensaje" value={scheduledAt} required disabled={audioBusy || recording} onChange={(event) => setScheduledAt(event.target.value)} /></label>}
+                </div>
+                {delivery === 'scheduled' && <p className={styles.windowNote}>Se verificará la ventana de 24 horas de Instagram al enviarlo. Si está cerrada o el contacto desactiva los mensajes, quedará bloqueado y se mostrará el motivo.</p>}
+                <div className={styles.sendRow}><span className={styles.muted}>{delivery === 'scheduled' ? 'Podés cancelar un envío mientras esté pendiente.' : 'El estado del envío aparece en el historial.'}</span><button type="submit" className={styles.sendButton} disabled={(delivery === 'now' ? !canReply : !canSchedule || !scheduledAt) || audioBusy || recording || (kind === 'text' ? !text.trim() : !audioFile && !audioUrl.trim())}>{delivery === 'scheduled' ? <CalendarClock size={16} /> : <Send size={16} />}{busy ? 'Guardando…' : delivery === 'scheduled' ? 'Programar mensaje' : 'Enviar'}</button></div>
             </form>
         </>}
     </div>;

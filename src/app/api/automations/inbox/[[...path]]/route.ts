@@ -1,6 +1,7 @@
 import { requireRole } from '@/lib/auth';
 import { InputError, object, uuid } from '@/lib/automation-validation';
 import { leadSearchFilter } from '@/lib/automation-data';
+import { scheduledSendAt } from '@/lib/inbox-schedule';
 import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { supabase as db } from '@/utils/supabase';
 
@@ -34,6 +35,7 @@ type Message = {
     status: string;
     error: string | null;
     created_at: string;
+    scheduled_at?: string | null;
 };
 const MAX_AUDIO_BYTES = 4_000_000;
 const AUDIO_EXTENSIONS: Record<string, string> = {
@@ -144,7 +146,7 @@ async function handle(request: Request, context: Context) {
             if (!leadRaw) return Response.json({ error: 'No se encontró el contacto.' }, { status: 404 });
             const lead = leadWithTags(leadRaw as unknown as RawLead);
             const received = receivedRaw as unknown as { id: string; meta_message_id: string; direction: 'inbound' | 'outbound'; text: string | null; attachments: Attachment[]; received_at: string }[];
-            const outbox = outboxRaw as unknown as { id: string; message_id: string | null; kind: 'text' | 'audio'; text: string | null; audio_url: string | null; status: string; error: string | null; created_at: string; sent_at: string | null }[];
+            const outbox = outboxRaw as unknown as { id: string; message_id: string | null; kind: 'text' | 'audio'; text: string | null; audio_url: string | null; status: string; error: string | null; created_at: string; sent_at: string | null; next_attempt_at: string }[];
             const events = eventsRaw as unknown as { id: string; message_id: string | null; dm_sent_at: string; error: string | null; automations: { dm_text: string; dm_link_url: string | null } | null }[];
             const followups = followupsRaw as unknown as { id: string; message_id: string | null; sent_at: string; step: { kind: 'text' | 'audio'; text?: string; audio_url?: string }; error: string | null }[];
             const stories = storiesRaw as unknown as { id: string; message_id: string | null; sent_at: string | null; created_at: string; status: string; error: string | null; story_automations: { dm_text: string | null; dm_audio_url: string | null } | null }[];
@@ -154,7 +156,7 @@ async function handle(request: Request, context: Context) {
                 const audio = attachments.find((a) => a.type === 'audio');
                 return { id: `message:${row.id}`, direction: row.direction || 'inbound', kind: audio ? 'audio' : 'text', text: row.text, audio_url: audio?.url || audio?.payload?.url || null, attachments, status: 'sent', error: null, created_at: row.received_at };
             });
-            messages.push(...outbox.map((row) => ({ id: `outbox:${row.id}`, direction: 'outbound' as const, kind: row.kind, text: row.text, audio_url: row.audio_url, attachments: [], status: row.status, error: row.error, created_at: row.sent_at || row.created_at })));
+            messages.push(...outbox.map((row) => ({ id: `outbox:${row.id}`, direction: 'outbound' as const, kind: row.kind, text: row.text, audio_url: row.audio_url, attachments: [], status: row.status, scheduled_at: row.status === 'queued' && Date.parse(row.next_attempt_at) > Date.now() ? row.next_attempt_at : null, error: row.error, created_at: row.sent_at || row.created_at })));
             messages.push(...events.map((row) => ({ id: `automation:${row.id}`, direction: 'outbound' as const, kind: 'text' as const, text: [row.automations?.dm_text, row.automations?.dm_link_url].filter(Boolean).join('\n'), audio_url: null, attachments: [], status: 'sent', error: null, created_at: row.dm_sent_at })));
             messages.push(...followups.map((row) => ({ id: `followup:${row.id}`, direction: 'outbound' as const, kind: row.step.kind, text: row.step.text || null, audio_url: row.step.audio_url || null, attachments: [], status: 'sent', error: null, created_at: row.sent_at })));
             messages.push(...stories.map((row) => ({ id: `story:${row.id}`, direction: 'outbound' as const, kind: row.story_automations?.dm_audio_url ? 'audio' as const : 'text' as const, text: row.story_automations?.dm_text || null, audio_url: row.story_automations?.dm_audio_url || null, attachments: [], status: row.status, error: row.error, created_at: row.sent_at || row.created_at })));
@@ -166,19 +168,39 @@ async function handle(request: Request, context: Context) {
             const leadId = uuid(id);
             const lead = result(await db.from('leads').select('id,ig_account_id,instagram_user_id,opted_out,last_inbound_at').eq('id', leadId).maybeSingle());
             if (!lead) return Response.json({ error: 'No se encontró el contacto.' }, { status: 404 });
-            const blocked = replyBlock(lead as unknown as RawLead);
-            if (blocked) return Response.json({ error: blocked }, { status: 409 });
             const body = object(await request.json());
             if (!['text', 'audio'].includes(String(body.kind))) throw new InputError('Elegí texto o audio.');
             const text = body.kind === 'text' && typeof body.text === 'string' ? body.text.trim() : null;
             if (body.kind === 'text' && (!text || text.length > 1000)) throw new InputError('Escribí un mensaje de entre 1 y 1000 caracteres.');
-            const row = { client_id: body.client_id ? uuid(body.client_id) : crypto.randomUUID(), lead_id: leadId, kind: body.kind, text, audio_url: body.kind === 'audio' ? audioUrl(body.audio_url) : null, status: 'queued', next_attempt_at: new Date().toISOString() };
+            const clientId = body.client_id ? uuid(body.client_id) : crypto.randomUUID();
+            const audio = body.kind === 'audio' ? audioUrl(body.audio_url) : null;
+            // Recuperar la misma operación antes de comprobar una ventana que pudo cerrar.
+            const previous = result(await db.from('inbox_outbox').select('*').eq('client_id', clientId).maybeSingle());
+            if (previous) {
+                if (previous.lead_id === leadId && previous.kind === body.kind && previous.text === text && previous.audio_url === audio) return Response.json(previous, { status: 202 });
+                return Response.json({ error: 'Ese identificador ya corresponde a otro mensaje.' }, { status: 409 });
+            }
+            let scheduled: string | null;
+            try { scheduled = scheduledSendAt(body.scheduled_at); }
+            catch (error) { throw new InputError((error as Error).message); }
+            const blocked = replyBlock(lead as unknown as RawLead);
+            const identityOk = /^\d+$/.test(lead.instagram_user_id || '') && lead.ig_account_id === (process.env.META_IG_ACCOUNT_ID || '17841476480622974');
+            if (blocked && (!scheduled || !identityOk || lead.opted_out)) return Response.json({ error: blocked }, { status: 409 });
+            const row = { client_id: clientId, lead_id: leadId, kind: body.kind, text, audio_url: audio, status: 'queued', next_attempt_at: scheduled || new Date().toISOString() };
             const inserted = await db.from('inbox_outbox').insert(row).select().single();
             if (inserted.error?.code === '23505') {
                 const previous = result(await db.from('inbox_outbox').select('*').eq('client_id', row.client_id).eq('lead_id', leadId).maybeSingle());
                 if (previous && previous.kind === row.kind && previous.text === row.text && previous.audio_url === row.audio_url) return Response.json(previous, { status: 202 });
             }
             return Response.json(result(inserted), { status: 202 });
+        }
+        if (id && action === 'messages' && path.length === 3 && request.method === 'DELETE') {
+            const leadId = uuid(id);
+            const messageId = uuid(path[2]);
+            // El reclamo del worker cambia a sending de forma atómica; sólo cancelar queued.
+            const removed = result(await db.from('inbox_outbox').delete().eq('id', messageId).eq('lead_id', leadId).eq('status', 'queued').select('id'));
+            if (!removed.length) return Response.json({ error: 'El mensaje ya fue procesado o no está pendiente. Actualizá la conversación.' }, { status: 409 });
+            return Response.json({ cancelled: true });
         }
         return Response.json({ error: 'Ruta no encontrada.' }, { status: 404 });
     } catch (e) {
@@ -188,4 +210,4 @@ async function handle(request: Request, context: Context) {
     }
 }
 
-export { handle as GET, handle as POST };
+export { handle as GET, handle as POST, handle as DELETE };

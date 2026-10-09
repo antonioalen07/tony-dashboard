@@ -33,7 +33,25 @@ try {
  assert.equal(signed.status,200);
  assert.equal((await fetch(`${base}/api/automations`)).status,401);
  assert.equal((await fetch(`${base}/api/automations/health`)).status,401);
+ for(const pathname of ['/privacidad','/eliminacion-datos']) {
+  const page=await fetch(`${base}${pathname}`,{redirect:'manual',headers:{Cookie:'bako_session=invalid-session','x-bako-auth':'forged'}});
+  assert.equal(page.status,200,`${pathname} debe ser pública aun con cookie inválida`);
+  const html=await page.text();
+  assert.match(html,/automatizaciones@crevy\.net/);
+  assert.match(html,/Crevy/);
+  assert.doesNotMatch(html,/Cerrar sesión/);
+  assert.equal((await fetch(`${base}${pathname}`,{method:'HEAD',redirect:'manual'})).status,200);
+  const child=await fetch(`${base}${pathname}/privado`,{redirect:'manual'});
+  assert.equal(child.status,307,'La excepción pública no debe abrir descendientes');
+  assert.equal(new URL(child.headers.get('location'),base).pathname,'/login');
+ }
+ const dashboard=await fetch(base,{redirect:'manual',headers:{'x-bako-auth':'forged'}});
+ assert.equal(dashboard.status,307);
+ assert.equal(new URL(dashboard.headers.get('location'),base).pathname,'/login');
+ const inboxPage=await fetch(`${base}/automatizaciones`,{redirect:'manual'});
+ assert.match(inboxPage.headers.get('permissions-policy'),/microphone=\(self\)/);
+ assert.equal((await fetch(`${base}/api/automations/inbox/contact/messages/message`,{method:'DELETE'})).status,401);
  const csrf=await fetch(`${base}/api/automations`,{method:'POST',body:'{}',headers:{Origin:'https://foreign.example'}});
  assert.equal(csrf.status,403);
- console.log('HTTP OK: challenge, firma inválida, firma válida, sesión obligatoria y CSRF.');
+ console.log('HTTP OK: challenge, firmas, páginas legales públicas exactas, dashboard/APIs protegidos y CSRF.');
 }finally{server.kill();}

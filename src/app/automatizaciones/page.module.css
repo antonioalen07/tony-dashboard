@@ -35,6 +35,8 @@
 .preview { background:var(--accent-soft); padding:18px; border-radius:18px 18px 3px 18px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .footer { position:sticky; bottom:-24px; background:var(--bg-color); padding:16px 0; display:flex; gap:12px; border-top:1px solid var(--card-border); }
 .audio { width:100%; }
+.delayControls { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
+.stepHint { margin:0; color:var(--text-secondary); font-size:.85rem; line-height:1.5; }
 .mediaGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px; max-height:330px; overflow-y:auto; padding:4px; }
 .panel .mediaOption,.panel .mediaSelected { display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:8px; text-align:left; min-width:0; font-size:.8rem; }
 .mediaGrid img,.mediaPlaceholder { width:100%; height:135px; object-fit:cover; border-radius:var(--radius-sm); background:var(--card-bg); }
