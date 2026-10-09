@@ -92,7 +92,10 @@ async function handle(request: Request, context: Context) {
             const offset = Math.max(0, Math.floor(Number(q.get('offset') || 0)) || 0);
             const tag = q.get('tag') ? uuid(q.get('tag')) : null;
             const selection = '*,lead_tag_assignments(tag_id,lead_tags(id,name))' + (tag ? ',tag_filter:lead_tag_assignments!inner(tag_id)' : '');
-            let query = db.from('leads').select(selection, { count: 'exact' }).order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
+            let query = db.from('leads').select(selection, { count: 'exact' })
+                .eq('ig_account_id', process.env.META_IG_ACCOUNT_ID || '17841476480622974')
+                .not('instagram_user_id', 'is', null)
+                .order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
             const search = leadSearchFilter(q.get('search') || '');
             if (search) query = query.or(search);
             if (tag) query = query.eq('tag_filter.tag_id', tag);
