@@ -33,6 +33,10 @@ try {
  assert.equal(signed.status,200);
  assert.equal((await fetch(`${base}/api/automations`)).status,401);
  assert.equal((await fetch(`${base}/api/automations/health`)).status,401);
+ for(const [path,method] of [['/api/chat/context','GET'],['/api/chat','POST'],['/api/reels/11111111-1111-4111-8111-111111111111','PATCH'],['/api/transcribe','POST'],['/api/analyze','POST']]) {
+  const response=await fetch(`${base}${path}`,{method,...(method==='GET'?{}:{body:'{}'})});
+  assert.equal(response.status,401,`${method} ${path} debe requerir sesión sin tocar IA/base`);
+ }
  for(const pathname of ['/privacidad','/eliminacion-datos']) {
   const page=await fetch(`${base}${pathname}`,{redirect:'manual',headers:{Cookie:'bako_session=invalid-session','x-bako-auth':'forged'}});
   assert.equal(page.status,200,`${pathname} debe ser pública aun con cookie inválida`);
@@ -53,5 +57,5 @@ try {
  assert.equal((await fetch(`${base}/api/automations/inbox/contact/messages/message`,{method:'DELETE'})).status,401);
  const csrf=await fetch(`${base}/api/automations`,{method:'POST',body:'{}',headers:{Origin:'https://foreign.example'}});
  assert.equal(csrf.status,403);
- console.log('HTTP OK: challenge, firmas, páginas legales públicas exactas, dashboard/APIs protegidos y CSRF.');
+ console.log('HTTP OK: challenge, firmas, páginas legales públicas exactas, dashboard/APIs/curación/chat protegidos y CSRF.');
 }finally{server.kill();}

@@ -325,6 +325,22 @@
   margin: -0.5rem 0 0.85rem;
 }
 
+.organize { display: flex; flex-direction: column; gap: 0.85rem; padding: 1rem; background: var(--surface-1); border: 1px solid var(--surface-border); border-radius: var(--radius-md); }
+.organize .sectionTitle { margin-bottom: 0; }
+.statusChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.statusChips:empty { display: none; }
+.statusChips span { display: inline-flex; align-items: center; gap: 5px; font-size: 0.7rem; line-height: 1.4; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px; padding: 4px 8px; }
+.controlButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.controlHint { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.5; display: flex; align-items: flex-start; gap: 5px; }
+.controlHint svg { flex-shrink: 0; margin-top: 2px; }
+.controlError { color: var(--accent-negative); font-size: 0.8rem; line-height: 1.5; }
+.originalField { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; color: var(--text-secondary); min-width: 0; }
+.originalField select { width: 100%; min-width: 0; border: 1px solid var(--surface-border); background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px; color: var(--text-primary); font: inherit; }
+.sectionHead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 1rem; }
+.section .controlButtons { margin-top: 0.85rem; }
+.section > .controlHint { margin-top: 0.6rem; }
+.deleteBtn { color: var(--accent-negative); }
+
 .bizGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/utils/supabase';
 import { Eye, Bookmark } from 'lucide-react';
 import { coverSrc } from '@/lib/covers';
+import { isActiveReel, type ReelCuration } from '@/lib/reel-curation';
 import styles from './TopContentList.module.css';
 
 const formatNumber = (num: number) => {
@@ -13,14 +14,24 @@ const formatNumber = (num: number) => {
   return num.toString();
 };
 
+interface TopReel extends ReelCuration {
+  id: string;
+  title?: string | null;
+  cover_url?: string | null;
+  views?: number | null;
+  reach?: number | null;
+  saves?: number | null;
+  engagement_rate?: number | null;
+}
+
 interface TopContentListProps {
   /** Reels ya filtrados por el rango. Sin la prop, la lista se trae sola. */
-  reels?: any[];
+  reels?: TopReel[];
 }
 
 export default function TopContentList({ reels }: TopContentListProps = {}) {
   const controlled = reels != null;
-  const [fetched, setFetched] = useState<any[]>([]);
+  const [fetched, setFetched] = useState<TopReel[]>([]);
   const [loading, setLoading] = useState(!controlled);
 
   useEffect(() => {
@@ -29,8 +40,7 @@ export default function TopContentList({ reels }: TopContentListProps = {}) {
       const { data } = await supabase
         .from('reels')
         .select('*')
-        .order('views', { ascending: false })
-        .limit(4);
+        .order('views', { ascending: false });
       if (data) setFetched(data);
       setLoading(false);
     };
@@ -39,7 +49,7 @@ export default function TopContentList({ reels }: TopContentListProps = {}) {
 
   const topReels = useMemo(() => {
     const source = controlled ? reels! : fetched;
-    return [...source].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 4);
+    return source.filter(isActiveReel).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 4);
   }, [controlled, reels, fetched]);
 
   return (

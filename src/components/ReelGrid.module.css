@@ -5,6 +5,10 @@
 }
 
 .card {
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  font: inherit;
   position: relative;
   aspect-ratio: 9/16;
   border-radius: var(--radius-md);
@@ -120,3 +124,6 @@
   color: white;
   font-weight: 600;
 }
+
+.card:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 4px; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

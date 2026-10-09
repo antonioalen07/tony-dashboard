@@ -18,21 +18,27 @@ export interface LoadedSettings {
   /** true = falta correr la migración; lo guardado no se puede persistir. */
   tableMissing: boolean;
   updatedAt: string | null;
+  source: 'saved' | 'defaults' | 'missing_table';
 }
 
-export async function loadBlocks(): Promise<LoadedSettings> {
-  const { data, error } = await supabase
+export async function loadBlocks(db: Pick<typeof supabase, 'from'> = supabase): Promise<LoadedSettings> {
+  const { data, error } = await db
     .from('ai_settings')
     .select('blocks, updated_at')
     .eq('id', AI_SETTINGS_ID)
     .maybeSingle();
 
-  if (error) return { blocks: resolveBlocks(null), tableMissing: true, updatedAt: null };
+  if (error) {
+    if (['42P01', 'PGRST205'].includes(error.code))
+      return { blocks: resolveBlocks(null), tableMissing: true, updatedAt: null, source: 'missing_table' };
+    throw new Error('No se pudo leer el entrenamiento guardado. Revisá la conexión o el acceso a la base de datos.');
+  }
 
   return {
     blocks: resolveBlocks(data?.blocks),
     tableMissing: false,
     updatedAt: (data?.updated_at as string) ?? null,
+    source: data ? 'saved' : 'defaults',
   };
 }
 
@@ -63,5 +69,5 @@ export async function saveBlocks(incoming: Partial<Record<BlockId, string>>): Pr
       { onConflict: 'id' },
     );
 
-  if (error) throw new Error(error.message);
+  if (error) throw Object.assign(new Error('No se pudo guardar el entrenamiento. Revisá el acceso a la base de datos.'), { code: error.code });
 }

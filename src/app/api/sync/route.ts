@@ -130,10 +130,11 @@ export async function POST() {
 
     // 1.b Portadas estables. La URL del CDN de Instagram viene firmada y caduca
     // en días, así que la copiamos al Storage una sola vez por reel.
-    const { data: known } = await supabase
+    const { data: known, error: knownError } = await supabase
       .from('reels')
       .select('instagram_id,cover_url')
       .in('instagram_id', videos.map((it) => it.id));
+    if (knownError) throw new Error('No se pudo consultar el historial de reels en Supabase');
 
     const alreadyStored = new Map<string, string>(
       ((known || []) as KnownCover[])
@@ -196,8 +197,11 @@ export async function POST() {
           .from('reels')
           .upsert(chunk, { onConflict: 'instagram_id' })
           .select();
-        if (error) console.error('Error guardando reels en Supabase:', error);
-        else synced.push(...(data || []));
+        if (error) {
+          console.error('Error guardando reels en Supabase:', error);
+          throw new Error('No se pudo guardar la sincronización completa en Supabase. Intentá nuevamente.');
+        }
+        synced.push(...(data || []));
       }
     }
 
@@ -208,8 +212,8 @@ export async function POST() {
       withoutInsights: insights.filter((x) => x === null).length,
       data: synced,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Sync Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal Server Error' }, { status: 500 });
   }
 }

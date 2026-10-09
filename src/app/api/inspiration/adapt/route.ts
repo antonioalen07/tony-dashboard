@@ -4,19 +4,32 @@ import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
 import { transcribeInstagramPost } from '@/lib/transcribe';
 import { loadBlocks } from '@/lib/aiSettings';
 import { composeAdaptSystemPrompt } from '@/lib/promptConfig';
+import { selectOwnReelExamples } from '@/lib/reel-examples';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 const fmt = (n: number | null | undefined) => (n == null ? 's/d' : Number(n).toLocaleString('es'));
 
+interface InspirationInput {
+  post_url: string;
+  transcript?: string | null;
+  username?: string;
+  score?: number;
+  multiplier?: number;
+  views?: number;
+  caption?: string | null;
+}
+
 /** Extrae el primer objeto JSON tolerando fences y ruido (mismo patrón que analyze). */
-function parseModelJSON(raw: string): any {
+function parseModelJSON(raw: string): Record<string, unknown> {
   let text = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first !== -1 && last > first) text = text.slice(first, last + 1);
-  return JSON.parse(text);
+  const parsed: unknown = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('La adaptación no devolvió un objeto válido');
+  return parsed as Record<string, unknown>;
 }
 
 export async function POST(request: Request) {
@@ -26,7 +39,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    let video: any = body.video || null;
+    let video: InspirationInput | null = body.video || null;
     const id: string | null = body.id || null;
 
     // Cargar el video persistido si vino por id
@@ -48,15 +61,15 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Top 5 reels propios con transcripción como ejemplos de estilo
+    // 2. Cinco narraciones activas distintas; filtrar antes del cupo evita que
+    // pruebas ocultas o transcripciones repetidas desplacen ejemplos útiles.
     const { data: ownReels } = await supabase
       .from('reels')
-      .select('title, views, saves, engagement_rate, transcript')
+      .select('*')
       .not('transcript', 'is', null)
-      .order('views', { ascending: false })
-      .limit(5);
+      .order('views', { ascending: false });
 
-    const ownExamples = (ownReels || [])
+    const ownExamples = selectOwnReelExamples(ownReels || [])
       .map(
         (r, i) =>
           `EJEMPLO ${i + 1} (${fmt(r.views)} vistas, ${fmt(r.saves)} guardados, ER ${r.engagement_rate ?? 's/d'}%):\n"${String(r.transcript || '').replace(/\s+/g, ' ').slice(0, 600)}"`
@@ -103,8 +116,8 @@ Tarea: identificá el TEMA y la MECÁNICA de la transcripción de arriba y hacé
     }
 
     return NextResponse.json({ success: true, adaptation, transcript });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Adapt Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal Server Error' }, { status: 500 });
   }
 }

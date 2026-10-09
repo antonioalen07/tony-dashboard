@@ -14,6 +14,7 @@ import styles from './PromptSettingsPanel.module.css';
 
 interface PromptSettingsPanelProps {
   onClose: () => void;
+  onSaved?: () => void;
 }
 
 const USED_IN_LABEL: Record<PromptTarget, string> = {
@@ -41,13 +42,14 @@ const PREVIEW_TABS: { id: PreviewTab; label: string }[] = [
  * El preview muestra el prompt final tal cual lo recibe el modelo. Si borraste
  * algo del entrenamiento y seguís viéndolo en el chat, se comprueba acá.
  */
-export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProps) {
+export default function PromptSettingsPanel({ onClose, onSaved }: PromptSettingsPanelProps) {
   const { toast } = useToast();
   const [blocks, setBlocks] = useState<Blocks>(DEFAULT_BLOCKS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [tableMissing, setTableMissing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [previewTab, setPreviewTab] = useState<PreviewTab | null>(null);
   const [preview, setPreview] = useState<Record<PreviewTab, string> | null>(null);
@@ -64,10 +66,13 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
       try {
         const res = await fetch('/api/ai-settings');
         const data = await res.json();
+        if (!res.ok || !data.blocks) throw new Error(data.error || 'No se pudo cargar el entrenamiento guardado.');
         if (data.blocks) setBlocks(data.blocks);
         setTableMissing(Boolean(data.tableMissing));
-      } catch {
-        toast('No se pudo cargar el entrenamiento', 'error');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No se pudo cargar el entrenamiento.';
+        setLoadError(message);
+        toast(message, 'error');
       }
       setLoading(false);
     })();
@@ -116,6 +121,7 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
         setTableMissing(false);
         setPreview(null);
         toast('Entrenamiento guardado — la IA ya lo usa', 'success');
+        onSaved?.();
       }
     } catch {
       toast('Error de red al guardar', 'error');
@@ -132,9 +138,8 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
               <SlidersHorizontal size={16} className={styles.titleIcon} /> Entrenamiento de la IA
             </h2>
             <p className={styles.panelSub}>
-              Estos bloques SON el prompt completo con el que trabaja tu estratega: no hay texto
-              oculto fuera de acá. Un bloque vacío no se le manda a la IA. Las transcripciones y los
-              números de tus reels se siguen leyendo solos.
+              Estas son las instrucciones guardadas del estratega. Un bloque vacío no se le manda
+              a la IA. El chat agrega por separado una selección de contenido y el historial reciente.
             </p>
           </div>
           <button className={styles.closeBtn} onClick={onClose} aria-label="Cerrar">
@@ -148,6 +153,7 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
             SQL Editor de Supabase. Hasta entonces podés ver los bloques pero no guardarlos.
           </div>
         )}
+        {loadError && <div className={styles.notice} role="alert">{loadError} Cerrá el editor y volvé a abrirlo antes de modificarlo.</div>}
 
         <div className={styles.previewBar}>
           <div className={styles.previewTabs}>
@@ -172,9 +178,9 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
         {previewTab !== null ? (
           <div className={styles.content}>
             <p className={styles.previewNote}>
-              Esto es <strong>textualmente</strong> lo que recibe el modelo, con lo último que
-              guardaste. Si borraste algo del entrenamiento y todavía aparece acá, está entrando por
-              otro bloque: buscalo con Ctrl+F y vacialo.
+              Estas son <strong>textualmente las instrucciones del sistema</strong>, con lo último
+              que guardaste. El dossier de contenido y la conversación se agregan cuando preguntás
+              y no forman parte de esta vista. Si borraste algo y sigue acá, revisá los otros bloques.
               {dirty && ' Ojo: tenés cambios sin guardar que todavía no se ven en este preview.'}
             </p>
             {previewLoading ? (
@@ -236,13 +242,14 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
                       </div>
                     </div>
                     <p className={styles.blockHint}>{def.hint}</p>
-                    <textarea
+                      <textarea
                       className={styles.blockInput}
                       value={value}
                       onChange={(e) => update(def.id, e.target.value)}
                       placeholder="Vacío = este bloque no se le manda a la IA."
                       rows={Math.min(16, Math.max(4, value.split('\n').length + 1))}
-                      spellCheck={false}
+                        spellCheck={false}
+                        disabled={Boolean(loadError)}
                     />
                   </section>
                 );
@@ -255,7 +262,7 @@ export default function PromptSettingsPanel({ onClose }: PromptSettingsPanelProp
           <span className={styles.footerHint}>
             {dirty ? 'Hay cambios sin guardar' : 'Todo guardado'}
           </span>
-          <button className={styles.saveBtn} onClick={save} disabled={saving || loading || !dirty}>
+          <button className={styles.saveBtn} onClick={save} disabled={saving || loading || !dirty || Boolean(loadError)}>
             {saving ? <Loader2 size={15} className={styles.spin} /> : <Save size={15} />}
             {saving ? 'Guardando…' : 'Guardar'}
           </button>

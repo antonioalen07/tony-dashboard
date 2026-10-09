@@ -13,6 +13,7 @@ import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { compressVideo } from '@/lib/compressVideo';
 import { STORY_FONTS } from '@/lib/storyRender';
 import { storedVariantCaption } from '@/lib/variant-caption';
+import { isActiveReel } from '@/lib/reel-curation';
 import {
   renderVariantTextPng, drawVariantText, ensureVariantFont, getVideoMeta, type VideoMeta,
 } from '@/lib/variantText';
@@ -236,12 +237,11 @@ export default function VariantesPage() {
     setLoadingReels(true);
     const { data, error } = await supabase
       .from('reels')
-      .select('id,title,cover_url,video_url,views')
+      .select('*')
       .not('video_url', 'is', null)
-      .order('views', { ascending: false, nullsFirst: false })
-      .limit(60);
+      .order('views', { ascending: false, nullsFirst: false });
     if (error) toast('No se pudieron cargar los reels', 'error');
-    setReels((data as ReelRow[]) || []);
+    setReels((data || []).filter(isActiveReel).slice(0, 60) as ReelRow[]);
     setReelsLoaded(true);
     setLoadingReels(false);
   }, [toast]);

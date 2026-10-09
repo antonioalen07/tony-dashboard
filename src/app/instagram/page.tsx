@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, MessageCircle, CalendarCheck } from 'lucide-react';
-import ReelGrid from '@/components/ReelGrid';
+import ReelGrid, { type InstagramReel } from '@/components/ReelGrid';
 import ReelDetailPanel from '@/components/ReelDetailPanel';
 import DateRangeFilter from '@/components/DateRangeFilter';
 import { supabase } from '@/utils/supabase';
@@ -10,9 +10,18 @@ import { useToast } from '@/components/Toast';
 import { median } from '@/lib/viral';
 import { ALL_TIME, filterByRange, sanitizeRange, type DateRange } from '@/lib/dateRange';
 import { loadWork, saveWork } from '@/lib/workSession';
+import { canEnrichReel, isActiveReel } from '@/lib/reel-curation';
+import { createReelCurationReads, rememberReelCuration, applyReelCuration, reconcileReelRead, reconcileReelsRead } from '@/lib/reel-curation-ui';
 import styles from './page.module.css';
 
 type SortMode = 'recent' | 'views' | 'er' | 'comments' | 'bookings';
+type ReelFilter = 'active' | 'duplicates' | 'hidden';
+
+const REEL_FILTERS: { key: ReelFilter; label: string }[] = [
+  { key: 'active', label: 'Activos' },
+  { key: 'duplicates', label: 'Repetidos' },
+  { key: 'hidden', label: 'Ocultos' },
+];
 
 const SORTS: { key: SortMode; label: string }[] = [
   { key: 'recent', label: 'Recientes' },
@@ -31,48 +40,76 @@ const fmtNum = (n: number) => {
 
 export default function InstagramIntelligence() {
   const { toast } = useToast();
-  const [selectedReel, setSelectedReel] = useState<any>(null);
-  const [reels, setReels] = useState<any[]>([]);
+  const [selectedReel, setSelectedReel] = useState<InstagramReel | null>(null);
+  const [reels, setReels] = useState<InstagramReel[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>('recent');
+  const [reelFilter, setReelFilter] = useState<ReelFilter>('active');
+  const [loadError, setLoadError] = useState('');
   const [range, setRange] = useState<DateRange>(ALL_TIME);
-
-  // Rango propio de esta sección: mirar el detalle de un mes acá no debería
-  // reencuadrar el dashboard, ni al revés.
-  useEffect(() => {
-    setRange(sanitizeRange(loadWork('ig-range', ALL_TIME)));
-  }, []);
+  const curationReads = useRef(createReelCurationReads());
 
   const changeRange = (next: DateRange) => {
     setRange(next);
     saveWork('ig-range', next);
   };
 
-  const fetchReels = async () => {
-    const { data } = await supabase
+  const fetchReels = useCallback(async () => {
+    const readRevision = curationReads.current.revision;
+    const { data, error } = await supabase
       .from('reels')
       .select('*')
       .order('published_at', { ascending: false });
-    if (data) setReels(data);
+    if (error) setLoadError('No se pudieron cargar los reels. Volvé a intentar.');
+    else {
+      const incoming = reconcileReelsRead((data || []) as InstagramReel[], readRevision, curationReads.current);
+      setReels(incoming);
+      setSelectedReel((current) => current ? incoming.find((item) => item.id === current.id) || current : null);
+      setLoadError('');
+    }
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchReels();
   }, []);
 
+  const readReel = useCallback(async (id: string) => {
+    const readRevision = curationReads.current.revision;
+    const { data } = await supabase.from('reels').select('*').eq('id', id).single();
+    if (!data) return null;
+    const incoming = reconcileReelRead(data as InstagramReel, readRevision, curationReads.current);
+    setReels((current) => current.map((item) => item.id === id ? incoming : item));
+    setSelectedReel((current) => current?.id === id ? incoming : current);
+    return incoming;
+  }, []);
+
+  useEffect(() => {
+    // La primera pintura coincide con el servidor; luego recuperamos el rango
+    // de esta sección y consultamos sus reels desde el navegador.
+    const frame = requestAnimationFrame(() => {
+      setRange(sanitizeRange(loadWork('ig-range', ALL_TIME)));
+      void fetchReels();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fetchReels]);
+
   const shown = useMemo(() => filterByRange(reels, range), [reels, range]);
+  const reelCounts = useMemo(() => ({
+    active: shown.filter(isActiveReel).length,
+    duplicates: shown.filter((reel) => !reel.is_hidden && reel.is_duplicate).length,
+    hidden: shown.filter((reel) => reel.is_hidden).length,
+  }), [shown]);
+  const visibleReels = useMemo(() => shown.filter((reel) => reelFilter === 'hidden'
+    ? reel.is_hidden
+    : !reel.is_hidden && (reelFilter === 'duplicates' ? reel.is_duplicate : !reel.is_duplicate)), [shown, reelFilter]);
 
   const sortedReels = useMemo(() => {
-    const copy = [...shown];
+    const copy = [...visibleReels];
     if (sort === 'views') copy.sort((a, b) => (b.views || 0) - (a.views || 0));
     else if (sort === 'er') copy.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
     else if (sort === 'comments') copy.sort((a, b) => (b.comments || 0) - (a.comments || 0));
     else if (sort === 'bookings') copy.sort((a, b) => (b.bookings || 0) - (a.bookings || 0));
     return copy;
-  }, [shown, sort]);
+  }, [visibleReels, sort]);
 
   /**
    * Comentarios = conversaciones abiertas. Se miran en dos planos: el volumen
@@ -83,9 +120,9 @@ export default function InstagramIntelligence() {
     const total = shown.reduce((sum, r) => sum + (r.comments || 0), 0);
     const reach = shown.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
     const withComments = shown.filter((r) => (r.comments || 0) > 0).length;
-    const top = shown.reduce(
+    const top = shown.filter(isActiveReel).reduce(
       (best, r) => ((r.comments || 0) > (best?.comments || 0) ? r : best),
-      null as any,
+      null as InstagramReel | null,
     );
     return {
       total,
@@ -117,9 +154,9 @@ export default function InstagramIntelligence() {
     // que parece una conversión mala y no lo es.
     const comments = measured.reduce((sum, r) => sum + (r.comments || 0), 0);
     const reach = measured.reduce((sum, r) => sum + (r.reach || r.views || 0), 0);
-    const top = shown.reduce(
+    const top = shown.filter(isActiveReel).reduce(
       (best, r) => ((r.bookings || 0) > (best?.bookings || 0) ? r : best),
-      null as any,
+      null as InstagramReel | null,
     );
     return {
       bookings,
@@ -139,7 +176,11 @@ export default function InstagramIntelligence() {
   );
 
   // Enriquecimiento automático: transcribe + analiza los reels que aún no lo estén.
-  const enrichReel = async (id: string, needTranscript: boolean) => {
+  const enrichReel = async (reel: InstagramReel, readRevision: number) => {
+    const current = reconcileReelRead(reel, readRevision, curationReads.current);
+    if (!canEnrichReel(current)) return;
+    const id = current.id;
+    const needTranscript = !current.transcript && Boolean(current.video_url?.startsWith('http'));
     if (needTranscript) {
       await fetch('/api/transcribe', {
         method: 'POST',
@@ -147,6 +188,7 @@ export default function InstagramIntelligence() {
         body: JSON.stringify({ id }),
       }).catch(() => {});
     }
+    if (!canEnrichReel(reconcileReelRead(reel, readRevision, curationReads.current))) return;
     await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -171,27 +213,32 @@ export default function InstagramIntelligence() {
         return;
       }
 
-      const { data: fresh } = await supabase
+      const readRevision = curationReads.current.revision;
+      const { data: fresh, error: refreshError } = await supabase
         .from('reels')
         .select('*')
         .order('published_at', { ascending: false });
-      const all = fresh || [];
+      if (refreshError) throw new Error('No se pudieron cargar los reels sincronizados.');
+      const all = reconcileReelsRead((fresh || []) as InstagramReel[], readRevision, curationReads.current);
       setReels(all);
+      setSelectedReel((current) => current ? all.find((item) => item.id === current.id) || current : null);
 
       const pending = all.filter(
-        (r) => (r.instagram_id || '').length < 19 && (!r.ai_analysis || r.ai_analysis.length === 0 || !r.transcript)
+        (r) => canEnrichReel(r)
+          && (r.instagram_id || '').length < 19
+          && (!r.ai_analysis?.length || (!r.transcript && r.video_url?.startsWith('http')))
       );
 
       for (let i = 0; i < pending.length; i++) {
         const r = pending[i];
         setStatus(`Procesando ${i + 1}/${pending.length}: transcripción + análisis IA…`);
-        await enrichReel(r.id, !r.transcript);
+        await enrichReel(r, readRevision);
       }
 
       await fetchReels();
       setStatus(null);
       toast(`Sincronización lista: ${data.syncedCount} reels, ${pending.length} enriquecidos`, 'success');
-    } catch (e) {
+    } catch {
       setStatus(null);
       toast('Error en la llamada de red', 'error');
     }
@@ -217,6 +264,7 @@ export default function InstagramIntelligence() {
         count={loading ? undefined : shown.length}
         total={loading ? undefined : reels.length}
       />
+      {loadError && <div className={styles.loadError} role="alert">{loadError}<button type="button" onClick={() => void fetchReels()}>Reintentar</button></div>}
 
       <section className={`glass-panel ${styles.commentsPanel}`}>
         <div className={styles.commentsHead}>
@@ -254,7 +302,7 @@ export default function InstagramIntelligence() {
             onClick={() => setSelectedReel(commentStats.top)}
             title="Abrir el análisis de este reel"
           >
-            <span className={styles.topCommentLabel}>Más comentado</span>
+            <span className={styles.topCommentLabel}>Más comentado entre activos</span>
             <span className={styles.topCommentTitle}>
               {(commentStats.top.title || 'Sin título').split('\n')[0]}
             </span>
@@ -317,7 +365,7 @@ export default function InstagramIntelligence() {
             onClick={() => setSelectedReel(bizStats.top)}
             title="Abrir el detalle de este reel"
           >
-            <span className={styles.topCommentLabel}>El que más agendó</span>
+            <span className={styles.topCommentLabel}>Más agendas entre activos</span>
             <span className={styles.topCommentTitle}>
               {(bizStats.top.title || 'Sin título').split('\n')[0]}
             </span>
@@ -325,14 +373,18 @@ export default function InstagramIntelligence() {
           </button>
         ) : (
           <p className={styles.bizNote}>
-            Todavía no cargaste agendas en este rango. Abrí un reel y completá{' '}
-            <strong>Resultados de negocio</strong>: con eso las tasas de acá arriba empiezan a decir
-            algo.
+            {bizStats.bookings > 0 ? 'Las agendas de este rango están en reels ocultos o repetidos. Podés consultarlas desde esos filtros.' : <>Todavía no cargaste agendas en este rango. Abrí un reel y completá <strong>Resultados de negocio</strong> para empezar a medir su conversión.</>}
           </p>
         )}
       </section>
 
       <div className={styles.filters}>
+        <div className={styles.visibilityFilters}>
+          <div className={styles.sortGroup} role="group" aria-label="Filtrar reels por estado">
+            {REEL_FILTERS.map((filter) => <button key={filter.key} type="button" className={`${styles.sortBtn} ${reelFilter === filter.key ? styles.sortActive : ''}`} aria-pressed={reelFilter === filter.key} onClick={() => setReelFilter(filter.key)}>{filter.label} <span className={styles.filterCount}>{reelCounts[filter.key]}</span></button>)}
+          </div>
+          <p className={styles.filterHint}>Ocultos y repetidos conservan sus métricas. Los repetidos se excluyen del análisis IA.</p>
+        </div>
         <div className={styles.filterLeft}>
           <span className={styles.filterText}>Ordenar por</span>
           <div className={styles.sortGroup} role="group" aria-label="Ordenar reels">
@@ -341,6 +393,7 @@ export default function InstagramIntelligence() {
                 key={s.key}
                 className={`${styles.sortBtn} ${sort === s.key ? styles.sortActive : ''}`}
                 onClick={() => setSort(s.key)}
+                aria-pressed={sort === s.key}
               >
                 {s.label}
               </button>
@@ -353,11 +406,13 @@ export default function InstagramIntelligence() {
       <div className={styles.gridContainer}>
         {loading ? (
           <p style={{ color: 'var(--text-secondary)' }}>Cargando reels desde Supabase…</p>
-        ) : reels.length > 0 && shown.length === 0 ? (
+        ) : loadError && reels.length === 0 ? null : reels.length > 0 && shown.length === 0 ? (
           <p className={styles.emptyRange}>
             Ninguno de tus {reels.length} reels cae en el rango elegido. Ampliá las fechas o tocá
             <strong> Limpiar</strong>.
           </p>
+        ) : shown.length > 0 && visibleReels.length === 0 ? (
+          <p className={styles.emptyRange}>{reelFilter === 'active' ? 'No hay reels activos en este rango. Revisá Repetidos u Ocultos para restaurarlos.' : reelFilter === 'duplicates' ? 'No hay reels marcados como repetidos en este rango.' : 'No hay reels ocultos en este rango.'}</p>
         ) : (
           <ReelGrid reels={sortedReels} onSelectReel={setSelectedReel} />
         )}
@@ -371,9 +426,16 @@ export default function InstagramIntelligence() {
           reel={selectedReel}
           medianViews={medianViews}
           avgCommentRate={commentStats.rate}
+          reels={reels}
+          readReel={readReel}
+          onUpdate={(updated) => {
+            const fields = rememberReelCuration(curationReads.current, updated);
+            setReels((current) => current.map((item) => item.id === updated.id ? applyReelCuration(item, fields) : item));
+            setSelectedReel((current) => current?.id === updated.id ? applyReelCuration(current, fields) : current);
+          }}
           onClose={() => {
             setSelectedReel(null);
-            fetchReels();
+            void fetchReels();
           }}
         />
       )}

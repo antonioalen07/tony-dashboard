@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isActiveReel } from '@/lib/reel-curation';
 
 type DatabaseError = { code?: string; message?: string };
 type QueryResult<T> = { data: T | null; error: DatabaseError | null };
@@ -41,6 +42,8 @@ export type AutomationMedia = {
     cover_url: string | null;
     published_at: string | null;
     views: number | null;
+    is_hidden?: boolean;
+    is_duplicate?: boolean;
 };
 type PendingMedia = { id: string; caption: string | null; scheduled_at: string | null };
 
@@ -53,15 +56,19 @@ export function isAutomationMediaId(id: unknown): id is string {
 export async function loadAutomationMedia(db: SupabaseClient) {
     const [reels, pending] = await Promise.all([
         optionalAutomationData<AutomationMedia[]>(db.from('reels')
-            .select('instagram_id,title,cover_url,published_at,views')
+            .select('*')
             // Filtrar antes del límite evita que reels de Apify oculten los propios.
             .not('instagram_id', 'like', '___________________%')
-            .order('published_at', { ascending: false }).limit(200), [], 'Reels'),
+            .order('published_at', { ascending: false }), [], 'Reels'),
         optionalAutomationData<PendingMedia[]>(db.from('publish_queue')
             .select('id,caption,scheduled_at').eq('status', 'pending')
             .order('scheduled_at', { ascending: true }), [], 'Publicaciones programadas'),
     ]);
-    return { reels: reels.data.filter((reel) => isAutomationMediaId(reel.instagram_id)), pending: pending.data, warnings: [...reels.warnings, ...pending.warnings] };
+    const visible = reels.data
+        .filter((reel) => isAutomationMediaId(reel.instagram_id) && isActiveReel(reel))
+        .slice(0, 200)
+        .map(({ instagram_id, title, cover_url, published_at, views }) => ({ instagram_id, title, cover_url, published_at, views }));
+    return { reels: visible, pending: pending.data, warnings: [...reels.warnings, ...pending.warnings] };
 }
 
 /** Comillas y escapes impiden convertir el texto en operadores de PostgREST. */

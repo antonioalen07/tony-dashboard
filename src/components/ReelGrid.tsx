@@ -1,10 +1,32 @@
-import { FileText, Sparkles, MessageCircle, CalendarCheck } from 'lucide-react';
+import { FileText, Sparkles, MessageCircle, CalendarCheck, EyeOff, Copy, FileX2 } from 'lucide-react';
 import { coverSrc } from '@/lib/covers';
+import type { ReelCuration } from '@/lib/reel-curation';
 import styles from './ReelGrid.module.css';
 
+export interface InstagramReel extends ReelCuration {
+  id: string;
+  instagram_id?: string | null;
+  title?: string | null;
+  cover_url?: string | null;
+  video_url?: string | null;
+  published_at?: string | null;
+  views?: number | null;
+  reach?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  saves?: number | null;
+  shares?: number | null;
+  engagement_rate?: number | null;
+  bookings?: number | null;
+  qualified_leads?: number | null;
+  transcript?: string | null;
+  ai_analysis?: string[] | null;
+  improvement?: string | null;
+}
+
 interface ReelGridProps {
-  reels: any[];
-  onSelectReel: (reel: any) => void;
+  reels: InstagramReel[];
+  onSelectReel: (reel: InstagramReel) => void;
 }
 
 const fmt = (n: number) => {
@@ -32,7 +54,7 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
         // Agendas cargadas a mano: el dato que dice si el video vendió algo.
         const bookings = typeof reel.bookings === 'number' ? reel.bookings : null;
         return (
-          <div key={reel.id} className={styles.card} onClick={() => onSelectReel(reel)}>
+          <button key={reel.id} type="button" className={styles.card} onClick={() => onSelectReel(reel)} aria-label={`Abrir reel: ${(reel.title || 'Sin título').split('\n')[0].slice(0, 100)}`}>
             <img
               src={coverSrc(reel.cover_url)}
               alt=""
@@ -42,7 +64,10 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
               // Portada caída: queda la tarjeta neutra, no el ícono de imagen rota.
               onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
             />
-            <div className={styles.badges}>
+            <span className={styles.badges}>
+              {reel.is_hidden && <span className={styles.badge} title="Oculto en el panel"><EyeOff size={11} /><span className={styles.srOnly}>Oculto</span></span>}
+              {reel.is_duplicate && <span className={styles.badge} title="Repetido · excluido de IA"><Copy size={11} /><span className={styles.srOnly}>Repetido</span></span>}
+              {reel.transcript_suppressed && <span className={styles.badge} title="Transcripción desactivada"><FileX2 size={11} /><span className={styles.srOnly}>Transcripción desactivada</span></span>}
               {hasTranscript && (
                 <span className={styles.badge} title="Transcripción lista">
                   <FileText size={11} />
@@ -53,10 +78,10 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
                   <Sparkles size={11} />
                 </span>
               )}
-            </div>
-            <div className={styles.overlay}>
-              <h4 className={styles.title}>{reel.title}</h4>
-              <div className={styles.stats}>
+            </span>
+            <span className={styles.overlay}>
+              <span className={styles.title}>{reel.title || 'Sin título'}</span>
+              <span className={styles.stats}>
                 <span>{fmt(reel.views || 0)} vistas</span>
                 <span className={styles.comments} title={`${reel.comments || 0} comentarios`}>
                   <MessageCircle size={11} /> {fmt(reel.comments || 0)}
@@ -76,9 +101,9 @@ export default function ReelGrid({ reels, onSelectReel }: ReelGridProps) {
                 {reel.engagement_rate != null && (
                   <span className={styles.retention}>{reel.engagement_rate}% ER</span>
                 )}
-              </div>
-            </div>
-          </div>
+              </span>
+            </span>
+          </button>
         );
       })}
     </div>

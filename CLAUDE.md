@@ -139,8 +139,35 @@ con el dossier de reels y los contratos JSON de `/api/analyze` y
 `/api/inspiration/adapt`.
 
 Para verificar que un cambio llegó: **Chat → Entrenamiento → pestañas de
-preview**, o `GET /api/ai-settings?preview=1`, que devuelve los tres prompts
-finales tal cual los recibe el modelo.
+preview**, o `GET /api/ai-settings?preview=1`, que devuelve las instrucciones
+del sistema de los tres modos. El dossier y el historial se agregan aparte.
+`GET /api/chat/context` devuelve cobertura y versión del entrenamiento sin
+llamar al modelo. `loadBlocks` sólo usa defaults ante tabla ausente o fila no
+guardada; los otros errores de la base se muestran y no reemplazan lo guardado.
+
+## Curación de reels y conocimiento de IA
+
+Migración manual: `supabase_migration_reel_curation.sql`. `reels.is_hidden`,
+`is_duplicate`, `transcript_suppressed` y `canonical_reel_id` son persistentes.
+Sin columnas, las lecturas funcionan y PATCH `/api/reels/[id]` responde 428.
+Ocultar conserva contenido y métricas; marcar repetido o borrar transcripción
+limpia también análisis/mejora y bloquea regeneración. Nunca borrar físicamente
+un reel para ocultarlo: la sincronización lo importaría de nuevo.
+
+`/api/sync` actualiza sólo metadatos/métricas, sin pisar las marcas. El
+enriquecimiento automático vive en la página de Instagram. Debe usar
+`canEnrichReel`, igual que transcribe/analyze; sus writes condicionados y el
+trigger SQL protegen contra una exclusión concurrente. Los totales conservan
+todas las publicaciones, mientras grilla y listas de contenido separan ocultos
+y repetidos.
+
+`chat-context.ts` agrupa transcripciones normalizadas iguales, conserva métricas
+por publicación, incluye muestras de contraste y prioriza relevancia textual
+de la pregunta. No es detección visual ni de audio. Sus límites son caracteres,
+no tokens; omite guiones completos que no caben y muestra cobertura. El
+entrenamiento no modifica pesos del modelo y los análisis históricos no se
+regeneran al editarlo. Pruebas sin servicios reales: `npm run test:reels`.
+Diagnóstico de lectura sin imprimir textos/credenciales: `npm run inspect:knowledge`.
 
 ## Detalles del código que muerden
 

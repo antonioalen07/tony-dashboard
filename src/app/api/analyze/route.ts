@@ -3,6 +3,8 @@ import { supabase } from '@/utils/supabase';
 import { llm, LLM_MODEL, hasLLMKey } from '@/lib/llm';
 import { loadBlocks } from '@/lib/aiSettings';
 import { composeAnalyzeSystemPrompt } from '@/lib/promptConfig';
+import { requireRole } from '@/lib/auth';
+import { canEnrichReel, hasCurationColumns, isReelId, ENRICHMENT_BLOCKED_MESSAGE } from '@/lib/reel-curation';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +31,12 @@ function parseModelJSON(raw: string): { ai_analysis: string[]; improvement: stri
 }
 
 export async function POST(request: Request) {
+  const auth = await requireRole(request);
+  if (!auth.ok) return auth.res;
   try {
     const { id } = await request.json();
 
-    if (!id) {
+    if (!isReelId(id)) {
       return NextResponse.json({ error: 'Reel ID is required' }, { status: 400 });
     }
 
@@ -49,6 +53,9 @@ export async function POST(request: Request) {
 
     if (fetchError || !reel) {
       return NextResponse.json({ error: 'Reel not found' }, { status: 404 });
+    }
+    if (!canEnrichReel(reel)) {
+      return NextResponse.json({ error: ENRICHMENT_BLOCKED_MESSAGE }, { status: 409 });
     }
 
     // Los ejes de análisis y el vocabulario de variables son editables desde
@@ -96,7 +103,7 @@ Devuelve SOLO el JSON.`,
     }
 
     // Persistir en Supabase
-    const { error: updateError } = await supabase
+    let update = supabase
       .from('reels')
       .update({
         ai_analysis: analysisResult.ai_analysis,
@@ -104,17 +111,24 @@ Devuelve SOLO el JSON.`,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
+    if (hasCurationColumns(reel)) {
+      update = update.eq('is_hidden', false).eq('is_duplicate', false).eq('transcript_suppressed', false);
+    }
+    const { data: saved, error: updateError } = await update.select('id,ai_analysis').maybeSingle();
 
     if (updateError) {
       console.error('Update Error:', updateError);
       throw new Error('No se pudo guardar el análisis en Supabase');
     }
+    if (!saved || !saved.ai_analysis) {
+      return NextResponse.json({ error: ENRICHMENT_BLOCKED_MESSAGE }, { status: 409 });
+    }
 
     return NextResponse.json({ success: true, data: analysisResult });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Analyze Error:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal Server Error' },
+      { error: error instanceof Error ? error.message : 'Internal Server Error' },
       { status: 500 }
     );
   }

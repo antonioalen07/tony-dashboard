@@ -13,14 +13,14 @@ export const dynamic = 'force-dynamic';
 /**
  * Bloques efectivos (guardados + defaults) para el editor.
  *
- * Con `?preview=1` devuelve además el prompt FINAL de cada modo, exactamente
- * como lo recibe el modelo. Es la única forma de comprobar que un cambio en el
+ * Con `?preview=1` devuelve las instrucciones del sistema de cada modo; el
+ * dossier y la conversación se añaden por separado. Permite comprobar que un cambio en el
  * entrenamiento llegó de verdad: si borraste algo y sigue apareciendo en el
  * preview, está entrando por otro bloque.
  */
 export async function GET(request: Request) {
   try {
-    const { blocks, tableMissing, updatedAt } = await loadBlocks();
+    const { blocks, tableMissing, updatedAt, source } = await loadBlocks();
     const wantsPreview = new URL(request.url).searchParams.get('preview') === '1';
 
     return NextResponse.json({
@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       disabled: disabledBlockIds(blocks),
       tableMissing,
       updatedAt,
+      source,
       ...(wantsPreview
         ? {
             preview: {
@@ -39,8 +40,8 @@ export async function GET(request: Request) {
           }
         : {}),
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'No se pudo leer el entrenamiento.' }, { status: 503 });
   }
 }
 
@@ -61,10 +62,11 @@ export async function PUT(request: Request) {
       disabled: disabledBlockIds(saved.blocks),
       updatedAt: saved.updatedAt,
     });
-  } catch (error: any) {
-    const message = String(error?.message || '');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No se pudo guardar el entrenamiento.';
+    const code = (error as { code?: string })?.code;
     // Sin migración corrida no hay dónde guardar: decirlo con nombre y apellido.
-    if (/ai_settings/i.test(message) || /schema cache/i.test(message)) {
+    if (code && ['42P01', 'PGRST205'].includes(code)) {
       return NextResponse.json(
         { error: 'Falta la tabla `ai_settings`: corré supabase_migration_ai_config.sql en el SQL Editor de Supabase.' },
         { status: 428 },

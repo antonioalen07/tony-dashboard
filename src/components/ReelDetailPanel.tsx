@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   X, ExternalLink, Sparkles, FileText, Download, Copy, Check, AlertCircle, Loader2,
-  CalendarCheck, UserCheck,
+  CalendarCheck, UserCheck, EyeOff, Eye, RotateCcw, FileX2,
 } from 'lucide-react';
 import { supabase } from '@/utils/supabase';
 import { useToast } from '@/components/Toast';
 import { PRODUCTION_MIGRATION, isMissingSchema } from '@/lib/scripts-types';
+import { canEnrichReel, type ReelCurationAction } from '@/lib/reel-curation';
+import type { InstagramReel } from './ReelGrid';
 import styles from './ReelDetailPanel.module.css';
 
 /** Campo de carga manual: vacío = "todavía no lo medí"; 0 = "medido, no trajo nada". */
@@ -19,19 +21,28 @@ const parseCount = (raw: string): number | null => {
 const asInput = (value: unknown): string => (value == null ? '' : String(value));
 
 interface ReelDetailPanelProps {
-  reel: any;
+  reel: InstagramReel;
+  reels?: InstagramReel[];
+  onUpdate?: (reel: InstagramReel) => void;
+  readReel?: (id: string) => Promise<InstagramReel | null>;
   onClose: () => void;
   medianViews?: number;
   /** Promedio de la cuenta de comentarios por cada 1.000 de alcance. */
   avgCommentRate?: number;
 }
 
-export default function ReelDetailPanel({ reel: initialReel, onClose, medianViews = 0, avgCommentRate = 0 }: ReelDetailPanelProps) {
+export default function ReelDetailPanel({ reel: initialReel, reels = [], onUpdate, readReel, onClose, medianViews = 0, avgCommentRate = 0 }: ReelDetailPanelProps) {
   const { toast } = useToast();
   const [reel, setReel] = useState(initialReel);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [actionBusy, setActionBusy] = useState<ReelCurationAction | null>(null);
+  const [controlError, setControlError] = useState('');
+  const [canonicalId, setCanonicalId] = useState(initialReel.canonical_reel_id || '');
+  const aiExcluded = !canEnrichReel(reel);
+  const processing = Boolean(actionBusy || isAnalyzing || isTranscribing);
+  const originals = reels.filter((candidate) => candidate.id !== reel.id && canEnrichReel(candidate));
 
   // Resultados de negocio: se cargan a mano, uno por uno, cuando se cierran las
   // consultas que trajo el video. Meta no los conoce; solo vos.
@@ -71,7 +82,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
     saved.current = { ...next };
     setBizMissing(false);
     setBizState('saved');
-    setReel((prev: any) => ({ ...prev, ...payload }));
+    setReel((prev) => ({ ...prev, ...payload }));
   };
 
   // Cerrar con Escape no dispara el blur de los inputs: se guarda igual.
@@ -88,12 +99,37 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
   }, [initialReel.id]);
 
   const refreshReel = async () => {
-    const { data: updatedReel } = await supabase.from('reels').select('*').eq('id', reel.id).single();
-    if (updatedReel) setReel(updatedReel);
+    const updated = readReel ? await readReel(reel.id) : (await supabase.from('reels').select('*').eq('id', reel.id).single()).data;
+    if (updated) setReel(updated as InstagramReel);
+  };
+
+  const updateReel = async (action: ReelCurationAction) => {
+    if (processing) return;
+    setActionBusy(action); setControlError('');
+    try {
+      const response = await fetch(`/api/reels/${encodeURIComponent(reel.id)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...(action === 'mark_duplicate' ? { canonical_reel_id: canonicalId || null } : {}) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'No se pudo guardar el cambio. Volvé a intentar.');
+      if (!result.reel || result.reel.id !== reel.id) throw new Error('No se recibió el reel actualizado. Volvé a intentar.');
+      const updated = result.reel as InstagramReel;
+      setReel(updated); setCanonicalId(updated.canonical_reel_id || ''); onUpdate?.(updated);
+      const messages: Record<ReelCurationAction, string> = {
+        hide: 'Reel oculto. Sus métricas se conservan.', show: 'Reel visible en el panel.',
+        mark_duplicate: 'Marcado como repetido y excluido de IA.', unmark_duplicate: updated.is_hidden ? 'Marca de repetido quitada. Mostrá el reel para volver a incluirlo en IA.' : 'Marca de repetido quitada. Puede volver a generar contenido IA.',
+        delete_transcript: 'Transcripción borrada. La generación quedó desactivada.', allow_transcript: 'Generación de transcripción e IA habilitada.',
+      };
+      toast(messages[action], 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar el cambio.';
+      setControlError(message); toast(message, 'error');
+    } finally { setActionBusy(null); }
   };
 
   const vsMedian =
-    medianViews > 0 && reel.views > 0 ? Math.round((reel.views / medianViews) * 10) / 10 : null;
+    medianViews > 0 && (reel.views || 0) > 0 ? Math.round(((reel.views || 0) / medianViews) * 10) / 10 : null;
 
   // Tasa de conversación: comentarios por cada 1.000 de alcance. Normaliza el
   // conteo crudo, que por definición premia siempre al reel que más vistas tuvo.
@@ -110,7 +146,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
   const bookingRate =
     bookingsCount != null && commentBase > 0 ? (bookingsCount * 1000) / commentBase : null;
   const commentToBooking =
-    bookingsCount != null && (reel.comments || 0) > 0 ? (bookingsCount * 100) / reel.comments : null;
+    bookingsCount != null && (reel.comments || 0) > 0 ? (bookingsCount * 100) / (reel.comments || 1) : null;
 
   const handleCopyTranscript = async () => {
     try {
@@ -123,6 +159,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
   };
 
   const handleTranscribe = async () => {
+    if (aiExcluded || processing) return;
     setIsTranscribing(true);
     try {
       const res = await fetch('/api/transcribe', {
@@ -137,7 +174,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
       } else {
         toast('Error transcribiendo: ' + data.error, 'error');
       }
-    } catch (e) {
+    } catch {
       toast('Error en llamada a red', 'error');
     }
     setIsTranscribing(false);
@@ -155,6 +192,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
   };
 
   const handleAnalyze = async () => {
+    if (aiExcluded || processing) return;
     setIsAnalyzing(true);
     try {
       const res = await fetch('/api/analyze', {
@@ -169,7 +207,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
       } else {
         toast('Error analizando: ' + data.error, 'error');
       }
-    } catch (e) {
+    } catch {
       toast('Error en llamada a red', 'error');
     }
     setIsAnalyzing(false);
@@ -179,8 +217,8 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
 
   return (
     <div className={styles.panelOverlay} onClick={onClose}>
-      <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
-        <button className={styles.closeBtn} onClick={onClose}>
+      <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby="reel-detail-title" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Cerrar detalle del reel">
           <X size={20} />
         </button>
 
@@ -190,8 +228,8 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
               <img src={reel.cover_url ? `https://wsrv.nl/?url=${encodeURIComponent(reel.cover_url)}` : ''} alt="" className={styles.thumbnail} referrerPolicy="no-referrer" />
             </div>
             <div className={styles.headerInfo}>
-              <h2 className={styles.title}>{reel.title || 'Sin título'}</h2>
-              <span className={styles.date}>{new Date(reel.published_at).toLocaleDateString()}</span>
+              <h2 id="reel-detail-title" className={styles.title}>{reel.title || 'Sin título'}</h2>
+              <span className={styles.date}>{reel.published_at ? new Date(reel.published_at).toLocaleDateString('es-AR') : 'Sin fecha'}</span>
               {vsMedian != null && (
                 <span
                   className={styles.medianChip}
@@ -203,6 +241,33 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
               )}
             </div>
           </div>
+
+          <section className={styles.organize} aria-labelledby="reel-organize-title">
+            <h3 id="reel-organize-title" className={styles.sectionTitle}>Organizar reel</h3>
+            <div className={styles.statusChips}>
+              {reel.is_hidden && <span><EyeOff size={12}/> Oculto</span>}
+              {reel.is_duplicate && <span><Copy size={12}/> Repetido · excluido de IA</span>}
+              {reel.transcript_suppressed && <span><FileX2 size={12}/> Generación desactivada</span>}
+            </div>
+            <div className={styles.controlButtons}>
+              <button type="button" className={styles.editBtn} disabled={processing} onClick={() => void updateReel(reel.is_hidden ? 'show' : 'hide')}>
+                {reel.is_hidden ? <Eye size={14}/> : <EyeOff size={14}/>} {reel.is_hidden ? 'Mostrar en el panel' : 'Ocultar del panel'}
+              </button>
+              <button type="button" className={styles.editBtn} disabled={processing} onClick={() => void updateReel(reel.is_duplicate ? 'unmark_duplicate' : 'mark_duplicate')}>
+                {reel.is_duplicate ? <RotateCcw size={14}/> : <Copy size={14}/>} {reel.is_duplicate ? 'Quitar marca de repetido' : 'Marcar como repetido'}
+              </button>
+            </div>
+            {!reel.is_duplicate && originals.length > 0 && <label className={styles.originalField}>Original del reel repetido (opcional)
+              <select value={canonicalId} disabled={processing} onChange={(event) => setCanonicalId(event.target.value)}>
+                <option value="">Sin vincular a otro reel</option>
+                {originals.map((original) => <option value={original.id} key={original.id}>{(original.title || 'Sin título').slice(0, 80)}{original.published_at ? ` · ${new Date(original.published_at).toLocaleDateString('es-AR')}` : ''}</option>)}
+              </select>
+            </label>}
+            {reel.canonical_reel_id && <p className={styles.controlHint}>Vinculado al original: {reels.find((original) => original.id === reel.canonical_reel_id)?.title || 'Reel original'}</p>}
+            <p className={styles.controlHint}>Ocultar conserva sus métricas y textos. Marcar como repetido borra su transcripción y análisis IA, y desactiva su generación. Podés restaurarlo desde estos controles.</p>
+            {actionBusy && <p className={styles.controlHint} role="status"><Loader2 size={12} className={styles.spin}/> Guardando cambio…</p>}
+            {controlError && <p className={styles.controlError} role="alert">{controlError}</p>}
+          </section>
 
           <div className={styles.statsGrid}>
             <div className={styles.statBox}>
@@ -336,7 +401,7 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   onClick={handleTranscribe}
-                  disabled={isTranscribing}
+                  disabled={processing || aiExcluded}
                   className={styles.editBtn}
                   title="Transcribir el audio del reel (Apify + ElevenLabs)"
                 >
@@ -352,12 +417,14 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
                     <Download size={14} /> Descargar
                   </button>
                 )}
-                <button onClick={handleAnalyze} disabled={isAnalyzing} className={styles.editBtn}>
+                <button onClick={handleAnalyze} disabled={processing || aiExcluded} className={styles.editBtn}>
                   {isAnalyzing ? <Loader2 size={14} className={styles.spin} /> : <Sparkles size={14} />}
                   {reel.ai_analysis && reel.ai_analysis.length > 0 ? 'Regenerar' : 'Generar'}
                 </button>
               </div>
             </div>
+
+            {aiExcluded && <p className={styles.controlHint}>La generación IA está desactivada para este reel. {reel.is_hidden ? 'Mostralo en el panel para volver a incluirlo.' : reel.is_duplicate ? 'Quitá la marca de repetido para volver a incluirlo.' : 'Podés habilitarla desde Transcripción.'}</p>}
 
             {reel.ai_analysis && reel.ai_analysis.length > 0 ? (
               <div className={styles.aiList}>
@@ -384,19 +451,22 @@ export default function ReelDetailPanel({ reel: initialReel, onClose, medianView
             </div>
           )}
 
-          {reel.transcript && (
-            <div className={styles.section}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 className={styles.sectionTitle}>
+          <section className={styles.section}>
+              <div className={styles.sectionHead}>
+                <h3 className={styles.sectionTitle} style={{ marginBottom: 0 }}>
                   <FileText size={16} className="text-secondary" /> Transcripción
                 </h3>
-                <button onClick={handleCopyTranscript} className={styles.editBtn} title="Copiar transcripción">
+                {reel.transcript && <button onClick={handleCopyTranscript} className={styles.editBtn} title="Copiar transcripción">
                   {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copiada' : 'Copiar'}
-                </button>
+                </button>}
               </div>
-              <div className={styles.transcriptBox}>{reel.transcript}</div>
-            </div>
-          )}
+              {reel.transcript ? <div className={styles.transcriptBox}>{reel.transcript}</div> : <p className={styles.emptyState}>{reel.transcript_suppressed ? 'Transcripción desactivada. No se regenerará al sincronizar.' : 'Todavía no hay transcripción para este reel.'}</p>}
+              <div className={styles.controlButtons}>
+                {!reel.transcript_suppressed && <button type="button" className={`${styles.editBtn} ${styles.deleteBtn}`} disabled={processing} onClick={() => void updateReel('delete_transcript')}><FileX2 size={14}/> {reel.transcript ? 'Borrar transcripción' : 'Desactivar transcripción'}</button>}
+                {reel.transcript_suppressed && !reel.is_duplicate && !reel.is_hidden && <button type="button" className={styles.editBtn} disabled={processing} onClick={() => void updateReel('allow_transcript')}><RotateCcw size={14}/> Habilitar transcripción e IA</button>}
+              </div>
+              {!reel.transcript_suppressed && <p className={styles.controlHint}>Al borrarla también se elimina el análisis IA y se desactiva su generación hasta que la habilites de nuevo.</p>}
+          </section>
         </div>
       </div>
     </div>
