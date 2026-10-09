@@ -32,6 +32,7 @@ try {
  const signed=await fetch(`${base}/api/webhooks/instagram`,{method:'POST',body:raw,headers:{'X-Hub-Signature-256':`sha256=${createHmac('sha256','test-only-secret').update(raw).digest('hex')}`}});
  assert.equal(signed.status,200);
  assert.equal((await fetch(`${base}/api/automations`)).status,401);
+ assert.equal((await fetch(`${base}/api/automations/health`)).status,401);
  const csrf=await fetch(`${base}/api/automations`,{method:'POST',body:'{}',headers:{Origin:'https://foreign.example'}});
  assert.equal(csrf.status,403);
  console.log('HTTP OK: challenge, firma inválida, firma válida, sesión obligatoria y CSRF.');

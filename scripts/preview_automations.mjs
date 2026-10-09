@@ -10,6 +10,7 @@ const sequence={id,name:'Seguimiento de consultas B2B',active:true,auto_enroll:t
 const lead={id,instagram_user_id:'12345',username:'cliente.prueba',display_name:'Juan · Estudio creativo',starred:true,qualification:'qualified',opted_out:false,notes:'Consulta por automatización de ventas. Presupuesto pendiente.',last_inbound_at:now,tags:[tag]};
 const story={id,name:'Consultas desde historias',active:true,keywords:['info','precio'],match_mode:'contains',fuzzy:true,dm_text:'¡Hola! Contame qué buscás y te paso más información.',dm_audio_url:null,tag_ids:[id],once_per_user:true,starts_at:now,created_at:now,updated_at:now};
 const fixtures={
+ '/api/automations/health':{preview:true,checkedAt:now,status:'needs_configuration'},
  '/api/automations':[automation],'/api/automations/tags':[tag,{id:'22222222-2222-4222-8222-222222222222',name:'Muy calificado'}],
  '/api/automations/leads':[lead],
  '/api/automations/stories':[story],

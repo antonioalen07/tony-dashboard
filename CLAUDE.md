@@ -176,12 +176,18 @@ Pruebas sin enviar mensajes: `npm run test:automations`, `npm run lint:automatio
 Activación: reutilizar credenciales existentes de Supabase y Meta, correr SQL,
 configurar `META_WEBHOOK_VERIFY_TOKEN` si aún no existe; callback
 `https://<dominio>/api/webhooks/instagram`, objeto Instagram, campos `comments`
-y `messages`. Ejecutar `node scripts/subscribe_webhooks.mjs` para suscribir la
-página (feed), activar acceso a mensajes en Instagram y redeployar el worker.
+y `messages`. `node scripts/subscribe_webhooks.mjs --status` sólo consulta.
+`--apply --callback https://tony-dashboard-psi.vercel.app/api/webhooks/instagram`
+registra Instagram comments/messages y la app en la página feed/messages después
+de verificar el challenge. Requiere el verify token ya configurado, conserva
+campos existentes y no envía DMs. Activar acceso a mensajes y redeployar el worker.
 Verificación del 6-oct-2026: token válido/permanente y App Secret local presentes;
 `GET /{app-id}/subscriptions` y `GET /{page-id}/subscribed_apps` devolvieron `data: []`.
 `META_WEBHOOK_VERIFY_TOKEN` está ausente en `.env.local` (Vercel no se inspeccionó).
 La ruta del webhook en el código no equivale a una suscripción registrada en Meta.
+`/api/automations/health` consulta el estado real de Meta/base y no escribe ni
+confirma la ejecución del worker. La pantalla muestra si la recepción necesita
+configuración; los contactos sólo incluyen identidades del Instagram conectado.
 El verify token es una cadena independiente para el handshake, no el access token.
 La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
 `node scripts/test_private_reply.mjs --list <media_id>` y luego `--comment <id>

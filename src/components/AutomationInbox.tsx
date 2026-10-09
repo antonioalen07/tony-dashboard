@@ -34,6 +34,7 @@ type Message = {
 };
 type ConversationData = { lead: Contact; messages: Message[]; canReply: boolean; replyBlockedReason: string | null; truncated: boolean };
 type InboxData = { leads: Contact[]; total: number; hasMore: boolean };
+type InFlight = { key: string; request: number; promise: Promise<void> };
 const qualification: Record<string, string> = { new: 'Nuevo', qualified: 'Calificado', customer: 'Cliente', unqualified: 'No calificado' };
 const statuses: Record<string, string> = { queued: 'En cola', sending: 'Enviando', sent: 'Enviado', failed: 'Falló', blocked: 'Bloqueado', skipped: 'Omitido', uncertain: 'Revisar en Instagram' };
 const label = (contact: Contact) => contact.display_name || (contact.username ? `@${contact.username}` : `Contacto ${contact.instagram_user_id || contact.id.slice(0, 8)}`);
@@ -62,26 +63,44 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [missing, setMissing] = useState(false);
+    const [refreshVersion, setRefreshVersion] = useState(0);
     const queryRef = useRef(0);
-    const refresh = useCallback(async (showLoading = false) => {
+    const inFlightRef = useRef<InFlight | null>(null);
+    const refresh = useCallback((showLoading = false, force = false) => {
+        const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}) });
+        const key = query.toString();
+        const pending = inFlightRef.current;
+        if (!force && pending?.key === key && pending.request === queryRef.current) {
+            if (showLoading) setLoading(true);
+            return pending.promise;
+        }
         const request = ++queryRef.current;
         if (showLoading) setLoading(true);
-        try {
-            const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}) });
-            const data = await api<InboxData>(`/inbox?${query}`);
-            if (request !== queryRef.current) return;
-            setContacts(data.leads); setTotal(data.total); setHasMore(data.hasMore); setError(''); setMissing(false);
-        } catch (e) {
-            if (request !== queryRef.current) return;
-            const failure = e as Error & { migrationNeeded?: boolean };
-            setError(failure.message); setMissing(Boolean(failure.migrationNeeded));
-        } finally { if (request === queryRef.current) setLoading(false); }
+        const promise = (async () => {
+            try {
+                const data = await api<InboxData>(`/inbox?${query}`);
+                if (request !== queryRef.current) return;
+                setContacts(data.leads); setTotal(data.total); setHasMore(data.hasMore); setError(''); setMissing(false);
+            } catch (e) {
+                if (request !== queryRef.current) return;
+                const failure = e as Error & { migrationNeeded?: boolean };
+                setError(failure.message); setMissing(Boolean(failure.migrationNeeded));
+            } finally {
+                if (inFlightRef.current?.request === request) inFlightRef.current = null;
+                if (request === queryRef.current) setLoading(false);
+            }
+        })();
+        inFlightRef.current = { key, request, promise };
+        return promise;
     }, [search, page, tag, quality, starred]);
     useEffect(() => {
         const sequence = queryRef;
         const debounce = window.setTimeout(() => void refresh(true), 250);
         const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 10_000);
-        return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; };
+        const visible = () => { if (document.visibilityState === 'visible') void refresh(); };
+        document.addEventListener('visibilitychange', visible);
+        window.addEventListener('focus', visible);
+        return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh]);
     return <section className={styles.inbox} aria-label="Bandeja de conversaciones">
         <div className={styles.toolbar}>
@@ -89,7 +108,7 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
             <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
             <select aria-label="Filtrar por calificación" value={quality} onChange={(event) => { setQuality(event.target.value); setPage(0); }}><option value="">Todas las calificaciones</option>{Object.entries(qualification).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select>
             <button className={starred ? styles.selectedFilter : styles.button} type="button" aria-pressed={starred} onClick={() => { setStarred(!starred); setPage(0); }}><Star size={16} fill={starred ? 'currentColor' : 'none'} />Destacados</button>
-            <button className={styles.iconButton} type="button" onClick={() => void refresh(true)} aria-label="Actualizar conversaciones"><RefreshCw size={17} /></button>
+            <button className={styles.iconButton} type="button" onClick={() => { void refresh(true, true); setRefreshVersion((version) => version + 1); }} aria-label="Actualizar conversaciones"><RefreshCw size={17} /></button>
         </div>
         {missing ? <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh(true)} /> : error && <p className={styles.error} role="alert">{error}</p>}
         <div className={`${styles.layout} ${selectedId ? styles.hasConversation : ''}`}>
@@ -103,12 +122,12 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
                 </button>)}</div>
                 <div className={styles.pagination}><button type="button" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}>Anterior</button><span>{page + 1}</span><button type="button" disabled={!hasMore || loading} onClick={() => setPage(page + 1)}>Siguiente</button></div>
             </aside>
-            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} onBack={() => setSelectedId(null)} onChanged={() => void refresh()} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés enviar texto y audio cuando esté abierta la ventana de respuesta de Instagram.</span></div>}
+            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} refreshVersion={refreshVersion} onBack={() => setSelectedId(null)} onChanged={() => void refresh(false, true)} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés enviar texto y audio cuando esté abierta la ventana de respuesta de Instagram.</span></div>}
         </div>
     </section>;
 }
 
-function Conversation({ id, tags, onBack, onChanged, onTagsChange }: { id: string; tags: Tag[]; onBack: () => void; onChanged: () => void; onTagsChange?: () => void }) {
+function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChange }: { id: string; tags: Tag[]; refreshVersion: number; onBack: () => void; onChanged: () => void; onTagsChange?: () => void }) {
     const [data, setData] = useState<ConversationData | null>(null);
     const [error, setError] = useState('');
     const [fetchError, setFetchError] = useState('');
@@ -138,29 +157,44 @@ function Conversation({ id, tags, onBack, onChanged, onTagsChange }: { id: strin
     const aliveRef = useRef(true);
     const loadedRef = useRef(false);
     const requestRef = useRef(0);
+    const inFlightRef = useRef<InFlight | null>(null);
     const sendRef = useRef<{ signature: string; id: string } | null>(null);
-    const refresh = useCallback(async () => {
+    const refresh = useCallback((force = false) => {
+        const key = `${id}:${limit}`;
+        const pending = inFlightRef.current;
+        if (!force && pending?.key === key && pending.request === requestRef.current) return pending.promise;
         const request = ++requestRef.current;
-        try {
-            const next = await api<ConversationData>(`/inbox/${id}?limit=${limit}`);
-            if (!aliveRef.current || request !== requestRef.current) return;
-            setData(next); setMissing(false); setFetchError(''); setClock(Date.now());
-            if (!loadedRef.current) {
-                setDraft({ display_name: next.lead.display_name || '', notes: next.lead.notes || '', qualification: next.lead.qualification });
-                loadedRef.current = true;
+        const promise = (async () => {
+            try {
+                const next = await api<ConversationData>(`/inbox/${id}?limit=${limit}`);
+                if (!aliveRef.current || request !== requestRef.current) return;
+                setData(next); setMissing(false); setFetchError(''); setClock(Date.now());
+                if (!loadedRef.current) {
+                    setDraft({ display_name: next.lead.display_name || '', notes: next.lead.notes || '', qualification: next.lead.qualification });
+                    loadedRef.current = true;
+                }
+            } catch (e) {
+                if (!aliveRef.current || request !== requestRef.current) return;
+                const failure = e as Error & { migrationNeeded?: boolean };
+                setFetchError(failure.message); setMissing(Boolean(failure.migrationNeeded));
+            } finally {
+                if (inFlightRef.current?.request === request) inFlightRef.current = null;
+                if (aliveRef.current && request === requestRef.current) setLoading(false);
             }
-        } catch (e) {
-            if (!aliveRef.current || request !== requestRef.current) return;
-            const failure = e as Error & { migrationNeeded?: boolean };
-            setFetchError(failure.message); setMissing(Boolean(failure.migrationNeeded));
-        } finally { if (aliveRef.current && request === requestRef.current) setLoading(false); }
+        })();
+        inFlightRef.current = { key, request, promise };
+        return promise;
     }, [id, limit]);
     useEffect(() => {
         aliveRef.current = true;
+        const sequence = requestRef;
         const first = window.setTimeout(() => void refresh(), 0);
         const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 5_000);
-        return () => { clearTimeout(first); clearInterval(timer); aliveRef.current = false; };
-    }, [refresh]);
+        const visible = () => { if (document.visibilityState === 'visible') void refresh(); };
+        document.addEventListener('visibilitychange', visible);
+        window.addEventListener('focus', visible);
+        return () => { clearTimeout(first); clearInterval(timer); aliveRef.current = false; sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
+    }, [refresh, refreshVersion]);
     useEffect(() => {
         const node = messagesRef.current;
         if (node) node.scrollTop = node.scrollHeight;
@@ -177,13 +211,13 @@ function Conversation({ id, tags, onBack, onChanged, onTagsChange }: { id: strin
         setSaving(true); setError(''); setNotice('');
         try {
             await api(`/leads/${id}`, 'PATCH', fields);
-            await refresh(); onChanged(); setNotice('Contacto actualizado.');
+            await refresh(true); onChanged(); setNotice('Contacto actualizado.');
         } catch (e) { report(e); } finally { setSaving(false); }
     }
     async function assignTag(tagId: string, method: 'POST' | 'DELETE') {
         if (!tagId) return;
         setSaving(true); setError('');
-        try { await api(`/leads/${id}/tags`, method, { tag_id: tagId }); setAddTagId(''); await refresh(); onChanged(); }
+        try { await api(`/leads/${id}/tags`, method, { tag_id: tagId }); setAddTagId(''); await refresh(true); onChanged(); }
         catch (e) { report(e); } finally { setSaving(false); }
     }
     async function createTag() {
@@ -195,7 +229,7 @@ function Conversation({ id, tags, onBack, onChanged, onTagsChange }: { id: strin
             const tag = existing || await api<Tag>('/tags', 'POST', { name });
             if (!existing) { setCreatedTags((previous) => [...previous, tag]); onTagsChange?.(); }
             await api(`/leads/${id}/tags`, 'POST', { tag_id: tag.id });
-            setTagName(''); await refresh(); onChanged();
+            setTagName(''); await refresh(true); onChanged();
         } catch (e) { report(e); } finally { setSaving(false); }
     }
     function chooseAudio(file: File | null) {
@@ -267,7 +301,7 @@ function Conversation({ id, tags, onBack, onChanged, onTagsChange }: { id: strin
             await api(`/inbox/${id}/messages`, 'POST', { ...payload, client_id: sendRef.current!.id });
             sendRef.current = null; setText(''); clearAudio();
             setNotice('Mensaje en cola. El estado se actualiza cuando se envía.');
-            await refresh(); onChanged();
+            await refresh(true); onChanged();
         } catch (e) { report(e); } finally { setBusy(false); }
     }
     const expires = data?.lead.last_inbound_at ? Date.parse(data.lead.last_inbound_at) + 24 * 60 * 60_000 : 0;

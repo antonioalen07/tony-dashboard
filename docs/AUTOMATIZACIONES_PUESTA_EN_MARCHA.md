@@ -71,14 +71,39 @@ implementada no registra automáticamente el callback.
    `https://<tu-dominio>/api/webhooks/instagram` y el verify token anterior.
    Suscribí `comments` y `messages`. Los mensajes entrantes son necesarios para
    que BAKO pueda calcular la ventana de seguimiento.
-4. Con `.env.local` actualizado, ejecutá `node scripts/subscribe_webhooks.mjs`.
-   Suscribe la página al campo feed y verifica la suscripción. No envía DMs.
+4. Con `.env.local` actualizado, revisá `node scripts/subscribe_webhooks.mjs --status`.
+   El comando por defecto sólo lee. Para registrar la entrega, ejecutá
+   `node scripts/subscribe_webhooks.mjs --apply --callback https://tony-dashboard-psi.vercel.app/api/webhooks/instagram`.
+   Requiere `META_WEBHOOK_VERIFY_TOKEN` con el mismo valor que el servidor y
+   verifica el challenge antes de modificar Meta. Configura el objeto Instagram
+   (`comments`, `messages`) y la app en la página (`feed`, `messages`), preservando
+   otros campos. No envía DMs. Un callback existente diferente se bloquea salvo
+   que se pida explícitamente `--replace-callback`.
 5. Confirmá en los logs del worker que figure el job `automations@15000ms`.
 
 El polling de comentarios queda activo cada 5 minutos si los webhooks no llegan.
 No reemplaza el webhook de mensajes entrantes: sin él los seguimientos no se
 habilitan. Los permisos y la disponibilidad en modo desarrollo requieren tu
 validación en Meta. La implementación no solicita Advanced Access automáticamente.
+
+### Diagnóstico comprobado el 8-oct-2026
+
+La App Secret del servidor acepta una entrega firmada vacía (HTTP 200), pero las
+suscripciones de la app y la página siguen vacías. La base tiene cero eventos de
+comentarios y cero mensajes entrantes. Los tres contactos heredados no tienen
+identidad de Instagram: se conservan en la base, fuera de esta sección.
+
+La pantalla ahora consulta `/api/automations/health`: distingue suscripciones
+ausentes de consultas fallidas, muestra última recepción y evita presentar la
+conexión de métricas como recepción de chats. No confirma la ejecución del VPS.
+La bandeja comparte consultas en vuelo y se actualiza al recuperar foco; una
+respuesta lenta ya no queda descartada por todos los ticks siguientes.
+
+Para una prueba válida, abrí el enlace del reel dentro de la tarjeta de la regla
+y comentá su palabra clave desde otra cuenta después de la fecha de inicio.
+La regla "Video test" seguía apuntando a `DbmIBXwRdm1`; la API de ese reel sólo
+devolvía un comentario de septiembre, anterior a la regla. En reels recientes
+sí había comentarios nuevos visibles, pero sin coincidencias para esa regla.
 
 ## 4. Prueba propia
 

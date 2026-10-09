@@ -1,0 +1,9 @@
+.connection { border:1px solid var(--card-border); border-radius:var(--radius-md); background:var(--card-bg); padding:16px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+.connection[data-state=pending] { border-color:var(--accent-negative); }
+.heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.heading strong,.heading button { display:flex; align-items:center; gap:8px; }
+.connection p { margin:0; overflow-wrap:anywhere; }
+.facts { display:flex; flex-wrap:wrap; gap:8px 24px; color:var(--text-secondary); font-size:.85rem; }
+.checking { color:var(--text-secondary); }
+.connection summary { cursor:pointer; color:var(--text-secondary); }
+.connection details p { margin-top:8px; color:var(--text-secondary); font-size:.85rem; }

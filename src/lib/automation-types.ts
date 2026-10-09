@@ -22,6 +22,7 @@ export interface Automation {
     reel?: {
         title: string;
         cover_url: string | null;
+        video_url?: string | null;
     };
 }
 export interface Tag {

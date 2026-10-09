@@ -34,7 +34,7 @@ async function handle(request: Request, context: Context) {
                 const mediaIds = autos.map((a) => a.media_id).filter(Boolean);
                 const [counts, reels] = await Promise.all([
                     optionalAutomationData<{ automation_id: string; status: string; count: number }[]>(db.rpc('automation_stats'), [], 'Estadísticas'),
-                    mediaIds.length ? optionalAutomationData<{ instagram_id: string; title: string; cover_url: string | null }[]>(db.from('reels').select('instagram_id,title,cover_url').in('instagram_id', mediaIds), [], 'Portadas') : Promise.resolve({ data: [], warnings: [] }),
+                    mediaIds.length ? optionalAutomationData<{ instagram_id: string; title: string; cover_url: string | null; video_url: string | null }[]>(db.from('reels').select('instagram_id,title,cover_url,video_url').in('instagram_id', mediaIds), [], 'Portadas') : Promise.resolve({ data: [], warnings: [] }),
                 ]);
                 return json(autos.map((a) => ({ ...a, stats: Object.fromEntries(counts.data.filter((c) => c.automation_id === a.id).map((c) => [c.status, Number(c.count)])), reel: reels.data.find((r) => r.instagram_id === a.media_id) })), [...counts.warnings, ...reels.warnings]);
             }
@@ -69,7 +69,10 @@ async function handle(request: Request, context: Context) {
         }
         if (resource === 'leads') {
             if (method === 'GET' && !id) {
-                let query = db.from('leads').select('*,lead_tag_assignments(tag_id,lead_tags(id,name))').order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
+                let query = db.from('leads').select('*,lead_tag_assignments(tag_id,lead_tags(id,name))')
+                    .eq('ig_account_id', process.env.META_IG_ACCOUNT_ID || '17841476480622974')
+                    .not('instagram_user_id', 'is', null)
+                    .order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
                 const search = leadSearchFilter(q.get('search') || '');
                 if (search)
                     query = query.or(search);
