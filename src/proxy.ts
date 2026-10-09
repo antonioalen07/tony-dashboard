@@ -17,6 +17,7 @@ import { AUTH_HEADER, COOKIE_NAME, AuthUnavailableError, resolveSession, signAut
  *    cliente se descarta siempre.
  */
 const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout', '/api/webhooks/instagram'];
+const PUBLIC_LEGAL_PAGES = new Set(['/privacidad', '/eliminacion-datos']);
 const PASSWORD_CHANGE_PATHS = ['/cuenta', '/api/account/password', '/api/me', '/api/logout'];
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -29,6 +30,14 @@ const json = (error: string, status: number, extra: Record<string, unknown> = {}
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApi = pathname.startsWith('/api/');
+
+  // Sólo documentos legales públicos de lectura. No incluye descendientes,
+  // APIs ni acciones de servidor POST, y no depende de la base de sesiones.
+  if ((request.method === 'GET' || request.method === 'HEAD') && PUBLIC_LEGAL_PAGES.has(pathname)) {
+    const headers = new Headers(request.headers);
+    headers.delete(AUTH_HEADER);
+    return NextResponse.next({ request: { headers } });
+  }
 
   // Meta se autentica con HMAC; no necesita sesión ni Origin de navegador.
   if (pathname === '/api/webhooks/instagram') {

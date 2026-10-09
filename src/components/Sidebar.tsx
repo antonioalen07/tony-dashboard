@@ -35,15 +35,16 @@ export default function Sidebar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const hideSidebar = pathname === '/login' || pathname === '/privacidad' || pathname === '/eliminacion-datos';
 
   // Quién está logueado: decide si se muestra la entrada Admin.
   useEffect(() => {
-    if (pathname === '/login') return;
+    if (hideSidebar) return;
     fetch('/api/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setMe(data ? { email: data.email, name: data.name, role: data.role } : null))
       .catch(() => setMe(null));
-  }, [pathname]);
+  }, [pathname, hideSidebar]);
 
   const logout = async () => {
     await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -53,7 +54,8 @@ export default function Sidebar() {
 
   // Cerrar el drawer al navegar
   useEffect(() => {
-    setOpen(false);
+    const close = window.setTimeout(() => setOpen(false), 0);
+    return () => clearTimeout(close);
   }, [pathname]);
 
   // Cerrar con Escape
@@ -64,8 +66,8 @@ export default function Sidebar() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // En la pantalla de login no se muestra el sidebar.
-  if (pathname === '/login') return null;
+  // Login y documentos legales públicos no muestran navegación privada.
+  if (hideSidebar) return null;
 
   const navItems = [
     { label: 'Dashboard', icon: <LayoutDashboard size={18} />, href: '/' },
