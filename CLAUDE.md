@@ -235,6 +235,8 @@ La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
   reclama `lead_messages.notified_at` para no repetir avisos si Meta reentrega. Envs
   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` sólo en Vercel (no en el worker).
   `/sw.js` y `/manifest.webmanifest` son públicos en `src/proxy.ts`.
+- **Filtro por etiqueta** (`supabase_migration_push_tags.sql`): `push_subscriptions.tag_ids`
+  por dispositivo; vacío = todos los chats. El título del aviso lleva las etiquetas del contacto.
 
 ## Al hacer cambios de UI
 

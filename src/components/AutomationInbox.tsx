@@ -121,7 +121,7 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
         return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh]);
     return <section className={styles.inbox} aria-label="Bandeja de conversaciones">
-        <PushToggle />
+        <PushToggle tags={tags} />
         <div className={styles.toolbar}>
             <label className={styles.search}><Search size={17} /><span className={styles.srOnly}>Buscar contactos</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Buscar nombre, usuario o notas" maxLength={100} /></label>
             <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>

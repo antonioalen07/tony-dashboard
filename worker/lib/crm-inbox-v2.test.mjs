@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
-const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql'];
+const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql', 'supabase_migration_push_tags.sql'];
 const sql = await Promise.all(files.map((f) => readFile(new URL(`../../${f}`, import.meta.url), 'utf8')));
 
 async function database() {
@@ -76,5 +76,17 @@ test('Backfill: sólo marca pendientes de la última semana', async () => {
         await db.query("INSERT INTO inbox_outbox(client_id,lead_id,kind,text,status,sent_at) VALUES(gen_random_uuid(),$1,'text','ok','sent',now()-interval '1 day')", [c.id]);
         await db.exec(sql[2]);
         assert.deepEqual([(await lead(db, 'a')).unread, (await lead(db, 'b')).unread, (await lead(db, 'c')).unread], [true, false, false]);
+    } finally { await db.close(); }
+});
+
+test('Push: borrar una etiqueta la saca del filtro de cada dispositivo', async () => {
+    const db = await database();
+    try {
+        const { rows: [a] } = await db.query("INSERT INTO lead_tags(name) VALUES('B2B') RETURNING id");
+        const { rows: [b] } = await db.query("INSERT INTO lead_tags(name) VALUES('Calificado') RETURNING id");
+        await db.query("INSERT INTO push_subscriptions(endpoint,p256dh,auth,tag_ids) VALUES('https://push.example/1','k','a',ARRAY[$1,$2]::uuid[])", [a.id, b.id]);
+        await db.query('DELETE FROM lead_tags WHERE id=$1', [a.id]);
+        const { rows: [s] } = await db.query('SELECT tag_ids FROM push_subscriptions');
+        assert.deepEqual(s.tag_ids, [b.id]);
     } finally { await db.close(); }
 });

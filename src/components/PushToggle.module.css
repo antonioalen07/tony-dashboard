@@ -26,3 +26,15 @@
 .actions button:disabled { opacity: .55; cursor: wait; }
 .actions .primary { background: var(--accent-strong); color: var(--on-accent); border-color: transparent; }
 .actions .primary:hover:not(:disabled) { background: var(--accent-strong); opacity: .9; }
+
+.filter { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding-top: 10px; border-top: 1px solid var(--card-border); }
+.filterLabel { color: var(--text-primary); font-weight: 600; font-size: .8rem; }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--card-border); border-radius: 999px; background: var(--card-elevated); }
+.segmented button { font: inherit; font-size: .75rem; border: 0; background: transparent; color: var(--text-secondary); padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+.segmented button:disabled { opacity: .5; cursor: not-allowed; }
+.segmented .segmentOn { background: var(--accent-strong); color: var(--on-accent); }
+.tagChips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip, .chipOn { font: inherit; font-size: .75rem; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--card-border); background: var(--card-elevated); color: var(--text-secondary); cursor: pointer; }
+.chipOn { background: var(--accent-soft); border-color: var(--text-secondary); color: var(--text-primary); font-weight: 600; }
+.chip:disabled, .chipOn:disabled { cursor: wait; }
+.hint { flex-basis: 100%; font-size: .74rem; line-height: 1.45; }

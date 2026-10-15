@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Bell, BellOff, BellRing } from 'lucide-react';
+import type { Tag } from '@/lib/automation-types';
 import styles from './PushToggle.module.css';
 
 type State = 'loading' | 'unsupported' | 'ios-install' | 'unconfigured' | 'denied' | 'off' | 'on';
@@ -15,7 +16,8 @@ function keyBytes(base64: string): Uint8Array<ArrayBuffer> {
 const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
-async function detect(): Promise<{ state: State; key: string | null }> {
+type Detected = { state: State; key: string | null; endpoint?: string; filter?: string[]; filtersAvailable?: boolean };
+async function detect(): Promise<Detected> {
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     if (!supported) return { state: isIos() && !isStandalone() ? 'ios-install' : 'unsupported', key: null };
     const config = await fetch('/api/push').then((r) => r.json()).catch(() => ({ configured: false }));
@@ -23,17 +25,27 @@ async function detect(): Promise<{ state: State; key: string | null }> {
     if (Notification.permission === 'denied') return { state: 'denied', key: config.publicKey };
     const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
     const subscription = await registration.pushManager.getSubscription();
-    return { state: subscription ? 'on' : 'off', key: config.publicKey };
+    if (!subscription) return { state: 'off', key: config.publicKey };
+    const mine = await fetch(`/api/push?endpoint=${encodeURIComponent(subscription.endpoint)}`).then((r) => r.json()).catch(() => ({}));
+    return { state: 'on', key: config.publicKey, endpoint: subscription.endpoint, filter: Array.isArray(mine.tag_ids) ? mine.tag_ids : [], filtersAvailable: mine.filtersAvailable !== false };
 }
 
 /** Avisos de DMs nuevos en este dispositivo (cada teléfono o compu se activa por separado). */
-export default function PushToggle() {
+export default function PushToggle({ tags = [] }: { tags?: Tag[] }) {
     const [state, setState] = useState<State>('loading');
     const [key, setKey] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
-    const apply = useCallback((p: Promise<{ state: State; key: string | null }>) => {
-        p.then((r) => { setState(r.state); setKey(r.key); }).catch(() => setState('unsupported'));
+    const [endpoint, setEndpoint] = useState<string | null>(null);
+    const [filter, setFilter] = useState<string[]>([]);
+    const [onlyTagged, setOnlyTagged] = useState(false);
+    const [filtersAvailable, setFiltersAvailable] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const apply = useCallback((p: Promise<Detected>) => {
+        p.then((r) => {
+            setState(r.state); setKey(r.key); setEndpoint(r.endpoint || null);
+            setFilter(r.filter || []); setOnlyTagged(Boolean(r.filter?.length)); setFiltersAvailable(r.filtersAvailable !== false);
+        }).catch(() => setState('unsupported'));
     }, []);
     useEffect(() => { apply(detect()); }, [apply]);
 
@@ -49,7 +61,9 @@ export default function PushToggle() {
             const response = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: subscription.toJSON() }) });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) { await subscription.unsubscribe(); throw new Error(data.error || 'No se pudo activar.'); }
-            setState('on'); setMessage('Listo. Vas a recibir un aviso por cada DM nuevo.');
+            setState('on'); setEndpoint(subscription.endpoint); setMessage('Listo. Vas a recibir un aviso por cada DM nuevo.');
+            const mine = await fetch(`/api/push?endpoint=${encodeURIComponent(subscription.endpoint)}`).then((r) => r.json()).catch(() => ({}));
+            setFilter(Array.isArray(mine.tag_ids) ? mine.tag_ids : []); setOnlyTagged(Boolean(mine.tag_ids?.length)); setFiltersAvailable(mine.filtersAvailable !== false);
         } catch (e) { setMessage(e instanceof Error ? e.message : 'No se pudieron activar las notificaciones.'); }
         finally { setBusy(false); }
     }
@@ -64,6 +78,18 @@ export default function PushToggle() {
             setState('off');
         } catch { setMessage('No se pudieron desactivar. Probá de nuevo.'); }
         finally { setBusy(false); }
+    }
+    /** Guarda el filtro de este dispositivo. [] = todos los chats. */
+    async function saveFilter(next: string[]) {
+        if (!endpoint) return;
+        const previous = filter;
+        setFilter(next); setSaving(true); setMessage('');
+        try {
+            const response = await fetch('/api/push', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint, tag_ids: next }) });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'No se pudo guardar.');
+        } catch (e) { setFilter(previous); setMessage(e instanceof Error ? e.message : 'No se pudo guardar el filtro.'); }
+        finally { setSaving(false); }
     }
     async function test() {
         setBusy(true); setMessage('');
@@ -90,5 +116,21 @@ export default function PushToggle() {
             {state === 'off' && <button type="button" className={styles.primary} disabled={busy} onClick={() => void enable()}>{busy ? 'Activando…' : 'Activar'}</button>}
             {state === 'on' && <><button type="button" disabled={busy} onClick={() => void test()}>Probar</button><button type="button" disabled={busy} onClick={() => void disable()}>Desactivar</button></>}
         </div>
+        {state === 'on' && <div className={styles.filter}>
+            <span className={styles.filterLabel}>Avisarme de</span>
+            <div className={styles.segmented} role="radiogroup" aria-label="De qué chats avisar">
+                <button type="button" role="radio" aria-checked={!onlyTagged} className={!onlyTagged ? styles.segmentOn : ''} disabled={saving} onClick={() => { setOnlyTagged(false); if (filter.length) void saveFilter([]); }}>Todos los chats</button>
+                <button type="button" role="radio" aria-checked={onlyTagged} className={onlyTagged ? styles.segmentOn : ''} disabled={saving || !filtersAvailable || !tags.length} onClick={() => setOnlyTagged(true)}>Solo con etiquetas</button>
+            </div>
+            {!filtersAvailable && <span className={styles.hint}>Para filtrar por etiqueta, corré supabase_migration_push_tags.sql en Supabase.</span>}
+            {filtersAvailable && !tags.length && <span className={styles.hint}>Creá etiquetas en la pestaña Etiquetas para poder filtrar.</span>}
+            {onlyTagged && filtersAvailable && <>
+                <div className={styles.tagChips}>{tags.map((t) => {
+                    const on = filter.includes(t.id);
+                    return <button key={t.id} type="button" aria-pressed={on} className={on ? styles.chipOn : styles.chip} disabled={saving} onClick={() => void saveFilter(on ? filter.filter((x) => x !== t.id) : [...filter, t.id])}>{t.name}</button>;
+                })}</div>
+                <span className={styles.hint}>{filter.length ? `Solo vas a recibir avisos de contactos con ${filter.length === 1 ? 'esta etiqueta' : 'alguna de estas etiquetas'}, en este dispositivo.` : 'Elegí al menos una etiqueta. Mientras no elijas ninguna, te avisamos de todos los chats.'}</span>
+            </>}
+        </div>}
     </div>;
 }
