@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, BellOff, BellRing } from 'lucide-react';
+import { Bell, BellOff, BellRing, Check } from 'lucide-react';
 import type { Tag } from '@/lib/automation-types';
 import styles from './PushToggle.module.css';
 
@@ -127,9 +127,9 @@ export default function PushToggle({ tags = [] }: { tags?: Tag[] }) {
             {onlyTagged && filtersAvailable && <>
                 <div className={styles.tagChips}>{tags.map((t) => {
                     const on = filter.includes(t.id);
-                    return <button key={t.id} type="button" aria-pressed={on} className={on ? styles.chipOn : styles.chip} disabled={saving} onClick={() => void saveFilter(on ? filter.filter((x) => x !== t.id) : [...filter, t.id])}>{t.name}</button>;
+                    return <button key={t.id} type="button" aria-pressed={on} className={on ? styles.chipOn : styles.chip} disabled={saving} onClick={() => void saveFilter(on ? filter.filter((x) => x !== t.id) : [...filter, t.id])}>{on && <Check size={13} />}{t.name}</button>;
                 })}</div>
-                <span className={styles.hint}>{filter.length ? `Solo vas a recibir avisos de contactos con ${filter.length === 1 ? 'esta etiqueta' : 'alguna de estas etiquetas'}, en este dispositivo.` : 'Elegí al menos una etiqueta. Mientras no elijas ninguna, te avisamos de todos los chats.'}</span>
+                <span className={styles.hint}>{filter.length ? `${filter.length === 1 ? '1 etiqueta elegida' : `${filter.length} etiquetas elegidas`}: te avisamos sólo de contactos que tengan alguna, en este dispositivo. Tocá una para sumarla o sacarla.` : 'Tocá las etiquetas que te interesan (podés elegir varias). Mientras no elijas ninguna, te avisamos de todos los chats.'}</span>
             </>}
         </div>}
     </div>;

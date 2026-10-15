@@ -34,7 +34,10 @@
 .segmented button:disabled { opacity: .5; cursor: not-allowed; }
 .segmented .segmentOn { background: var(--accent-strong); color: var(--on-accent); }
 .tagChips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
-.chip, .chipOn { font: inherit; font-size: .75rem; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--card-border); background: var(--card-elevated); color: var(--text-secondary); cursor: pointer; }
-.chipOn { background: var(--accent-soft); border-color: var(--text-secondary); color: var(--text-primary); font-weight: 600; }
-.chip:disabled, .chipOn:disabled { cursor: wait; }
+/* Selectores con .bar delante: los estilos genéricos de botones de la Bandeja pisaban el "elegida". */
+.bar .chip, .bar .chipOn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: .78rem; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--card-border); background: var(--card-elevated); color: var(--text-secondary); cursor: pointer; }
+.bar .chipOn { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--on-accent); font-weight: 600; }
+.bar .chip:disabled, .bar .chipOn:disabled { cursor: wait; opacity: 1; }
+.bar .segmented button { border: 0; background: transparent; padding: 5px 11px; border-radius: 999px; }
+.bar .segmented .segmentOn { background: var(--accent-strong); color: var(--on-accent); }
 .hint { flex-basis: 100%; font-size: .74rem; line-height: 1.45; }
