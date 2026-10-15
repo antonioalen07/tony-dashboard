@@ -225,3 +225,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Sin responder: badge en el ítem y punto sobre el botón del menú en el teléfono. */
+.badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--accent-negative);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.menuDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent-negative);
+  box-shadow: 0 0 0 2px var(--bg-color);
+}

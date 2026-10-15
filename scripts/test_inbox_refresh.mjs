@@ -34,13 +34,14 @@ function fixture(scope) {
   const requests = [];
   const state = {};
   const ctx = {
-    search: '', page: 0, tag: '', quality: '', starred: false, id: 'lead', limit: 100,
+    search: '', page: 0, tag: '', quality: '', starred: false, unreadOnly: false, id: 'lead', limit: 100,
+    unreadCallback: { current: undefined },
     queryRef: { current: 0 }, requestRef: { current: 0 }, inFlightRef: { current: null },
     aliveRef: { current: true }, loadedRef: { current: false },
     api(path) { const request = deferred(); requests.push({ ...request, path }); return request.promise; },
     URLSearchParams, Date,
   };
-  for (const name of ['Contacts', 'Total', 'HasMore', 'Error', 'Missing', 'Loading', 'Data', 'FetchError', 'Clock', 'Draft']) ctx[`set${name}`] = (value) => { state[name] = value; };
+  for (const name of ['Contacts', 'Total', 'HasMore', 'Error', 'Missing', 'Loading', 'Data', 'FetchError', 'Clock', 'Draft', 'UnreadCount']) ctx[`set${name}`] = (value) => { state[name] = value; };
   vm.createContext(ctx);
   vm.runInContext(expression(scope), ctx);
   const response = (label) => scope === 'AutomationInbox'

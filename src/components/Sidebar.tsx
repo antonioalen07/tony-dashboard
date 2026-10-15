@@ -35,6 +35,7 @@ export default function Sidebar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [unread, setUnread] = useState(0);
   const hideSidebar = pathname === '/login' || pathname === '/privacidad' || pathname === '/eliminacion-datos';
 
   // Quién está logueado: decide si se muestra la entrada Admin.
@@ -45,6 +46,23 @@ export default function Sidebar() {
       .then((data) => setMe(data ? { email: data.email, name: data.name, role: data.role } : null))
       .catch(() => setMe(null));
   }, [pathname, hideSidebar]);
+
+  // DMs sin responder: badge en Automatizaciones y punto en el botón del menú (teléfono).
+  useEffect(() => {
+    if (hideSidebar) return;
+    let alive = true;
+    const check = () => {
+      if (document.visibilityState !== 'visible') return;
+      fetch('/api/automations/inbox/unread-count', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => { if (alive) setUnread(typeof data?.count === 'number' ? data.count : 0); })
+        .catch(() => {});
+    };
+    const first = window.setTimeout(check, 0);
+    const timer = window.setInterval(check, 30_000);
+    document.addEventListener('visibilitychange', check);
+    return () => { alive = false; clearTimeout(first); clearInterval(timer); document.removeEventListener('visibilitychange', check); };
+  }, [hideSidebar, pathname]);
 
   const logout = async () => {
     await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -87,10 +105,11 @@ export default function Sidebar() {
       <button
         className={styles.menuBtn}
         onClick={() => setOpen(true)}
-        aria-label="Abrir menú"
+        aria-label={unread > 0 ? `Abrir menú (${unread} sin responder)` : 'Abrir menú'}
         aria-expanded={open}
       >
         <Menu size={20} />
+        {unread > 0 && <span className={styles.menuDot} aria-hidden />}
       </button>
 
       {open && <div className={styles.overlay} onClick={() => setOpen(false)} />}
@@ -122,6 +141,9 @@ export default function Sidebar() {
               >
                 {item.icon}
                 <span>{item.label}</span>
+                {item.href === '/automatizaciones' && unread > 0 && (
+                  <span className={styles.badge} aria-label={`${unread} sin responder`}>{unread > 99 ? '99+' : unread}</span>
+                )}
               </Link>
             );
           })}

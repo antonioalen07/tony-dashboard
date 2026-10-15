@@ -495,14 +495,18 @@ export default function CalendarioPage() {
             const dayItems = byDay.get(k) || [];
             const isToday = k === todayKey;
             return (
-              <div key={k} className={`${styles.cell} ${isToday ? styles.today : ''}`}>
-                <span className={styles.dayNum}>{day}</span>
+              <div key={k} className={`${styles.cell} ${isToday ? styles.today : ''} ${dayItems.length ? '' : styles.noItems}`}>
+                <span className={styles.dayNum}>{day}<span className={styles.dayName}> · {WEEKDAYS[i % 7]}{isToday ? ' · hoy' : ''}</span></span>
                 <div className={styles.cellItems}>{dayItems.map(renderChip)}</div>
               </div>
             );
           })}
         </div>
         </div>
+        {/* En el teléfono la grilla pasa a agenda y oculta los días vacíos. */}
+        {!cells.some((d) => d !== null && (byDay.get(dayKey(view.y, view.m, d)) || []).length) && (
+          <p className={styles.agendaEmpty}>No hay publicaciones agendadas en {MONTHS[view.m].toLowerCase()}.</p>
+        )}
       </section>
 
       {/* ---- Confirmación de cancelación ---- */}

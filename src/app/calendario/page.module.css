@@ -544,3 +544,15 @@
   color: var(--text-tertiary);
   font-style: normal;
 }
+
+/* ── Teléfono: la grilla de 7 columnas no entra; pasa a agenda por día ── */
+.dayName, .agendaEmpty { display: none; }
+@media (max-width: 700px) {
+  .weekHead { display: none; }
+  .gridScroll { overflow: visible; }
+  .grid { grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; }
+  .empty0, .noItems:not(.today) { display: none; }
+  .cell { min-height: 0; }
+  .dayName { display: inline; font-weight: 500; color: var(--text-secondary); }
+  .agendaEmpty { display: block; margin: 4px 0 0; color: var(--text-secondary); font-size: .85rem; text-align: center; }
+}

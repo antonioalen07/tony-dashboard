@@ -42,10 +42,11 @@ export interface Lead {
     tags: Tag[];
 }
 export interface Step {
-    kind: 'text' | 'audio';
+    kind: 'text' | 'audio' | 'image';
     delay_minutes: number;
     text: string;
     audio_url: string;
+    image_url?: string;
 }
 export interface Sequence {
     id: string;

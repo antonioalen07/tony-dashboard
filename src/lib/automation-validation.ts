@@ -45,9 +45,11 @@ export function sequenceInput(value: unknown) {
         const s = object(v);
         if (!Number.isInteger(s.delay_minutes) || Number(s.delay_minutes) < 0 || Number(s.delay_minutes) > 525600)
             fail('La demora debe ser un número entero de minutos entre 0 y 525600');
-        if (!['text', 'audio'].includes(String(s.kind)))
+        if (!['text', 'audio', 'image'].includes(String(s.kind)))
             fail('Tipo de mensaje inválido');
-        return { kind: s.kind, delay_minutes: s.delay_minutes, text: s.kind === 'text' ? text(s.text, 'Mensaje', 1000) : '', audio_url: s.kind === 'audio' ? url(s.audio_url) || fail('Completá la URL del audio') : '' };
+        return { kind: s.kind, delay_minutes: s.delay_minutes, text: s.kind === 'text' ? text(s.text, 'Mensaje', 1000) : '',
+            audio_url: s.kind === 'audio' ? url(s.audio_url) || fail('Completá la URL del audio') : '',
+            image_url: s.kind === 'image' ? url(s.image_url) || fail('Adjuntá la imagen del paso') : '' };
     });
     return { name: text(b.name, 'Nombre', 120), active: bool(b.active, true), auto_enroll: bool(b.auto_enroll, false), required_tag_ids: list(b.required_tag_ids || [], true), qualified_only: bool(b.qualified_only, false), stop_on_reply: bool(b.stop_on_reply, true), steps, updated_at: new Date().toISOString() };
 }

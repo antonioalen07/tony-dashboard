@@ -64,6 +64,7 @@
 
 /* Botón primario de scan */
 .scanBtn {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -173,6 +174,7 @@
 
 .searchInput {
   flex: 1;
+  min-width: 0;
   background: var(--surface-1);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-sm);
@@ -196,7 +198,7 @@
 /* Grilla de bangers */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
   gap: 1rem;
   margin-top: 0.75rem;
 }

@@ -97,6 +97,7 @@
 .tip { margin: 0.3rem 0 0; font-size: 0.76rem; }
 
 @media (max-width: 560px) {
+  .head { flex-wrap: wrap; }
   .nums { flex-basis: 100%; order: 3; }
   .row { grid-template-columns: 1fr 60px; }
   .rowBar { display: none; }

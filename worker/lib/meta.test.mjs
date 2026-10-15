@@ -16,6 +16,7 @@ test('rate limit confirmado es transitorio y credenciales se redactan',async()=>
 });
 test('audio usa adjunto nativo y ventana exige un mensaje entrante',()=>{
  assert.deepEqual(messagePayload({id:'x'},{kind:'audio',audio_url:'https://example.com/a.mp3'}),{recipient:{id:'x'},message:{attachment:{type:'audio',payload:{url:'https://example.com/a.mp3'}}}});
+ assert.deepEqual(messagePayload({id:'x'},{kind:'image',image_url:'https://example.com/a.jpg'}),{recipient:{id:'x'},message:{attachment:{type:'image',payload:{url:'https://example.com/a.jpg'}}}});
  const now=Date.now();
  assert.equal(windowOpen({last_inbound_at:new Date(now-1000).toISOString()},now),true);
  for(const lead of [{},{last_inbound_at:new Date(now-86400000).toISOString()},{last_inbound_at:new Date(now+1000).toISOString()},{last_inbound_at:new Date(now-1000).toISOString(),opted_out:true}])assert.equal(windowOpen(lead,now),false);

@@ -220,6 +220,22 @@ La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
 `node scripts/test_private_reply.mjs --list <media_id>` y luego `--comment <id>
 --text "Prueba BAKO"`. No ejecutar scripts de envío/suscripción como parte de tests.
 
+### Bandeja v2: imágenes, sin responder y push (`supabase_migration_crm_inbox_v2.sql`)
+
+- **Imágenes**: pasos de seguimiento `kind: 'image'` (`image_url` en el jsonb) y
+  `inbox_outbox.kind = 'image'`. El navegador reduce a JPEG ≤1920 px (`src/lib/crm-image.ts`);
+  se sube a `crm-images/` del bucket studio. Instagram manda la imagen sin texto.
+- **Sin responder** = `leads.unread`, lo mantienen triggers: entra un DM → true; sale una
+  respuesta humana (envío manual confirmado o **eco** de la app de Instagram, que el webhook
+  ahora guarda como `lead_messages.direction='outbound'` vía `crm_record_echo`) → false.
+  Los DMs automáticos NO cuentan como respuesta. "Marcar como leída" setea `read_at` sin
+  tocar `updated_at` (no reordena). Sin la migración, la bandeja anda sin el contador.
+- **Push**: `public/sw.js` + `app/manifest.ts` (instalable; en iPhone sólo desde la pantalla
+  de inicio). El webhook, con `after()`, llama `notifyInboundMessages` (`src/lib/push.ts`):
+  reclama `lead_messages.notified_at` para no repetir avisos si Meta reentrega. Envs
+  `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` sólo en Vercel (no en el worker).
+  `/sw.js` y `/manifest.webmanifest` son públicos en `src/proxy.ts`.
+
 ## Al hacer cambios de UI
 
 El contenido más ancho que el área útil debe poder alcanzarse (scroll), nunca

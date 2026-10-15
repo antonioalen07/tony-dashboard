@@ -617,7 +617,9 @@
 }
 
 @media (max-width: 620px) {
-  .column { flex-basis: 250px; }
+  /* Una columna entera a la vista y el resto asomando: se desliza de a una. */
+  .board { scroll-snap-type: x mandatory; scroll-padding-inline: 2px; }
+  .column { flex-basis: 84vw; scroll-snap-align: start; }
   .searchBox { margin-left: 0; width: 100%; }
   .searchBox input { flex: 1; min-width: 0; }
 }

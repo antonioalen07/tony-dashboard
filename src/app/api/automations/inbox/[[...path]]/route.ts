@@ -21,6 +21,7 @@ type RawLead = {
     qualification: string;
     opted_out: boolean;
     last_inbound_at: string | null;
+    unread?: boolean;
     lead_tag_assignments?: { lead_tags: Tag | Tag[] | null }[];
     tag_filter?: unknown;
 };
@@ -28,7 +29,7 @@ type Attachment = { type: string; url?: string; payload?: { url?: string } };
 type Message = {
     id: string;
     direction: 'inbound' | 'outbound';
-    kind: 'text' | 'audio';
+    kind: 'text' | 'audio' | 'image';
     text: string | null;
     audio_url: string | null;
     attachments: Attachment[];
@@ -38,6 +39,9 @@ type Message = {
     scheduled_at?: string | null;
 };
 const MAX_AUDIO_BYTES = 4_000_000;
+// Instagram acepta PNG, JPEG y GIF de hasta 8 MB. El navegador ya reduce y convierte a JPEG.
+const MAX_IMAGE_BYTES = 8_000_000;
+const IMAGE_EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
 const AUDIO_EXTENSIONS: Record<string, string> = {
     'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a',
     'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
@@ -63,15 +67,32 @@ function replyBlock(lead: Pick<RawLead, 'ig_account_id' | 'instagram_user_id' | 
     }
     return null;
 }
-function audioUrl(value: unknown): string {
-    if (typeof value !== 'string' || value.length > 2048) throw new InputError('Completá la URL pública del audio.');
+function publicUrl(value: unknown, what: string): string {
+    if (typeof value !== 'string' || value.length > 2048) throw new InputError(`Completá la URL pública ${what}.`);
     let parsed: URL;
-    try { parsed = new URL(value.trim()); } catch { throw new InputError('Usá una URL pública https válida para el audio.'); }
+    try { parsed = new URL(value.trim()); } catch { throw new InputError(`Usá una URL pública https válida ${what}.`); }
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hostname === 'localhost' ||
         /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(parsed.hostname) || parsed.hostname.startsWith('[')) {
-        throw new InputError('Usá una URL pública https sin credenciales para el audio.');
+        throw new InputError(`Usá una URL pública https sin credenciales ${what}.`);
     }
     return parsed.toString();
+}
+const audioUrl = (value: unknown) => publicUrl(value, 'para el audio');
+const imageUrl = (value: unknown) => publicUrl(value, 'para la imagen');
+const ACCOUNT = () => process.env.META_IG_ACCOUNT_ID || '17841476480622974';
+/** null = falta la migración v2 (sin columna `unread`): la bandeja sigue andando sin el contador. */
+async function unreadCount(): Promise<number | null> {
+    // Sin `head`: una consulta HEAD no trae el código de error y no se distingue "falta la columna".
+    const { count, error } = await db.from('leads').select('id', { count: 'exact' })
+        .eq('ig_account_id', ACCOUNT()).not('instagram_user_id', 'is', null).eq('unread', true).range(0, 0);
+    if (error && ['42703', 'PGRST204'].includes(error.code || '')) return null;
+    if (error) throw Object.assign(new Error(error.message), { code: error.code });
+    return count || 0;
+}
+function isImage(bytes: Uint8Array, mime: string) {
+    if (mime === 'image/png') return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    if (mime === 'image/gif') return String.fromCharCode(...bytes.slice(0, 4)) === 'GIF8';
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
 }
 function isAudio(bytes: Uint8Array, mime: string) {
     const ascii = (start: number, end: number) => String.fromCharCode(...bytes.slice(start, end));
@@ -102,6 +123,7 @@ async function handle(request: Request, context: Context) {
             if (search) query = query.or(search);
             if (tag) query = query.eq('tag_filter.tag_id', tag);
             if (q.get('starred') === 'true') query = query.eq('starred', true);
+            if (q.get('unread') === 'true') query = query.eq('unread', true);
             if (q.get('qualification')) {
                 const qualification = q.get('qualification')!;
                 if (!['new', 'qualified', 'customer', 'unqualified'].includes(qualification)) throw new InputError('Calificación inválida.');
@@ -109,7 +131,29 @@ async function handle(request: Request, context: Context) {
             }
             const rows = await query;
             const leads = (result(rows) as unknown as RawLead[]).map(leadWithTags);
-            return Response.json({ leads, total: rows.count || 0, hasMore: offset + leads.length < (rows.count || 0) });
+            return Response.json({ leads, total: rows.count || 0, hasMore: offset + leads.length < (rows.count || 0), unreadCount: await unreadCount() });
+        }
+        if (id === 'unread-count' && path.length === 1 && request.method === 'GET') return Response.json({ count: await unreadCount() });
+        if (id === 'read-all' && path.length === 1 && request.method === 'POST') {
+            const marked = result(await db.from('leads').update({ unread: false, read_at: new Date().toISOString() })
+                .eq('ig_account_id', ACCOUNT()).eq('unread', true).select('id'));
+            return Response.json({ marked: marked.length });
+        }
+        if (id === 'image' && path.length === 1 && request.method === 'POST') {
+            const length = Number(request.headers.get('content-length') || 0);
+            if (length > MAX_IMAGE_BYTES + 150_000) return Response.json({ error: 'La imagen debe pesar hasta 8 MB.' }, { status: 413 });
+            if (!request.headers.get('content-type')?.startsWith('multipart/form-data')) throw new InputError('Subí la imagen como archivo.');
+            const form = await request.formData();
+            const file = form.get('file');
+            if (!(file instanceof File) || !file.size) throw new InputError('Elegí una imagen.');
+            if (file.size > MAX_IMAGE_BYTES) return Response.json({ error: 'La imagen debe pesar hasta 8 MB.' }, { status: 413 });
+            const mime = file.type.split(';')[0].toLowerCase();
+            if (!IMAGE_EXTENSIONS[mime]) throw new InputError('Formato no admitido. Usá JPG, PNG o GIF.');
+            const body = new Uint8Array(await file.arrayBuffer());
+            if (!isImage(body, mime)) throw new InputError('El archivo no coincide con el formato de imagen indicado.');
+            const storagePath = `crm-images/${crypto.randomUUID()}.${IMAGE_EXTENSIONS[mime]}`;
+            await uploadStudioObject(storagePath, Buffer.from(body), { contentType: mime, upsert: false });
+            return Response.json({ url: publicStudioUrl(storagePath), path: storagePath }, { status: 201 });
         }
         if (id === 'audio' && path.length === 1 && request.method === 'POST') {
             const length = Number(request.headers.get('content-length') || 0);
@@ -146,9 +190,9 @@ async function handle(request: Request, context: Context) {
             if (!leadRaw) return Response.json({ error: 'No se encontró el contacto.' }, { status: 404 });
             const lead = leadWithTags(leadRaw as unknown as RawLead);
             const received = receivedRaw as unknown as { id: string; meta_message_id: string; direction: 'inbound' | 'outbound'; text: string | null; attachments: Attachment[]; received_at: string }[];
-            const outbox = outboxRaw as unknown as { id: string; message_id: string | null; kind: 'text' | 'audio'; text: string | null; audio_url: string | null; status: string; error: string | null; created_at: string; sent_at: string | null; next_attempt_at: string }[];
+            const outbox = outboxRaw as unknown as { id: string; message_id: string | null; kind: 'text' | 'audio' | 'image'; text: string | null; audio_url: string | null; image_url?: string | null; status: string; error: string | null; created_at: string; sent_at: string | null; next_attempt_at: string }[];
             const events = eventsRaw as unknown as { id: string; message_id: string | null; dm_sent_at: string; error: string | null; automations: { dm_text: string; dm_link_url: string | null } | null }[];
-            const followups = followupsRaw as unknown as { id: string; message_id: string | null; sent_at: string; step: { kind: 'text' | 'audio'; text?: string; audio_url?: string }; error: string | null }[];
+            const followups = followupsRaw as unknown as { id: string; message_id: string | null; sent_at: string; step: { kind: 'text' | 'audio' | 'image'; text?: string; audio_url?: string; image_url?: string }; error: string | null }[];
             const stories = storiesRaw as unknown as { id: string; message_id: string | null; sent_at: string | null; created_at: string; status: string; error: string | null; story_automations: { dm_text: string | null; dm_audio_url: string | null } | null }[];
             const outboundIds = new Set([...outbox, ...events, ...followups, ...stories].map((row) => row.message_id).filter(Boolean));
             const messages: Message[] = received.filter((row) => !(row.direction === 'outbound' && outboundIds.has(row.meta_message_id))).map((row) => {
@@ -156,9 +200,10 @@ async function handle(request: Request, context: Context) {
                 const audio = attachments.find((a) => a.type === 'audio');
                 return { id: `message:${row.id}`, direction: row.direction || 'inbound', kind: audio ? 'audio' : 'text', text: row.text, audio_url: audio?.url || audio?.payload?.url || null, attachments, status: 'sent', error: null, created_at: row.received_at };
             });
-            messages.push(...outbox.map((row) => ({ id: `outbox:${row.id}`, direction: 'outbound' as const, kind: row.kind, text: row.text, audio_url: row.audio_url, attachments: [], status: row.status, scheduled_at: row.status === 'queued' && Date.parse(row.next_attempt_at) > Date.now() ? row.next_attempt_at : null, error: row.error, created_at: row.sent_at || row.created_at })));
+            const image = (url: string | null | undefined): Attachment[] => url ? [{ type: 'image', url }] : [];
+            messages.push(...outbox.map((row) => ({ id: `outbox:${row.id}`, direction: 'outbound' as const, kind: row.kind, text: row.text, audio_url: row.audio_url, attachments: image(row.image_url), status: row.status, scheduled_at: row.status === 'queued' && Date.parse(row.next_attempt_at) > Date.now() ? row.next_attempt_at : null, error: row.error, created_at: row.sent_at || row.created_at })));
             messages.push(...events.map((row) => ({ id: `automation:${row.id}`, direction: 'outbound' as const, kind: 'text' as const, text: [row.automations?.dm_text, row.automations?.dm_link_url].filter(Boolean).join('\n'), audio_url: null, attachments: [], status: 'sent', error: null, created_at: row.dm_sent_at })));
-            messages.push(...followups.map((row) => ({ id: `followup:${row.id}`, direction: 'outbound' as const, kind: row.step.kind, text: row.step.text || null, audio_url: row.step.audio_url || null, attachments: [], status: 'sent', error: null, created_at: row.sent_at })));
+            messages.push(...followups.map((row) => ({ id: `followup:${row.id}`, direction: 'outbound' as const, kind: row.step.kind, text: row.step.text || null, audio_url: row.step.audio_url || null, attachments: image(row.step.image_url), status: 'sent', error: null, created_at: row.sent_at })));
             messages.push(...stories.map((row) => ({ id: `story:${row.id}`, direction: 'outbound' as const, kind: row.story_automations?.dm_audio_url ? 'audio' as const : 'text' as const, text: row.story_automations?.dm_text || null, audio_url: row.story_automations?.dm_audio_url || null, attachments: [], status: row.status, error: row.error, created_at: row.sent_at || row.created_at })));
             messages.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
             const blocked = replyBlock(lead);
@@ -169,15 +214,16 @@ async function handle(request: Request, context: Context) {
             const lead = result(await db.from('leads').select('id,ig_account_id,instagram_user_id,opted_out,last_inbound_at').eq('id', leadId).maybeSingle());
             if (!lead) return Response.json({ error: 'No se encontró el contacto.' }, { status: 404 });
             const body = object(await request.json());
-            if (!['text', 'audio'].includes(String(body.kind))) throw new InputError('Elegí texto o audio.');
+            if (!['text', 'audio', 'image'].includes(String(body.kind))) throw new InputError('Elegí texto, audio o imagen.');
             const text = body.kind === 'text' && typeof body.text === 'string' ? body.text.trim() : null;
             if (body.kind === 'text' && (!text || text.length > 1000)) throw new InputError('Escribí un mensaje de entre 1 y 1000 caracteres.');
             const clientId = body.client_id ? uuid(body.client_id) : crypto.randomUUID();
             const audio = body.kind === 'audio' ? audioUrl(body.audio_url) : null;
+            const picture = body.kind === 'image' ? imageUrl(body.image_url) : null;
             // Recuperar la misma operación antes de comprobar una ventana que pudo cerrar.
             const previous = result(await db.from('inbox_outbox').select('*').eq('client_id', clientId).maybeSingle());
             if (previous) {
-                if (previous.lead_id === leadId && previous.kind === body.kind && previous.text === text && previous.audio_url === audio) return Response.json(previous, { status: 202 });
+                if (previous.lead_id === leadId && previous.kind === body.kind && previous.text === text && previous.audio_url === audio && (previous.image_url ?? null) === picture) return Response.json(previous, { status: 202 });
                 return Response.json({ error: 'Ese identificador ya corresponde a otro mensaje.' }, { status: 409 });
             }
             let scheduled: string | null;
@@ -186,13 +232,22 @@ async function handle(request: Request, context: Context) {
             const blocked = replyBlock(lead as unknown as RawLead);
             const identityOk = /^\d+$/.test(lead.instagram_user_id || '') && lead.ig_account_id === (process.env.META_IG_ACCOUNT_ID || '17841476480622974');
             if (blocked && (!scheduled || !identityOk || lead.opted_out)) return Response.json({ error: blocked }, { status: 409 });
-            const row = { client_id: clientId, lead_id: leadId, kind: body.kind, text, audio_url: audio, status: 'queued', next_attempt_at: scheduled || new Date().toISOString() };
+            const row = { client_id: clientId, lead_id: leadId, kind: body.kind, text, audio_url: audio, ...(picture ? { image_url: picture } : {}), status: 'queued', next_attempt_at: scheduled || new Date().toISOString() };
             const inserted = await db.from('inbox_outbox').insert(row).select().single();
             if (inserted.error?.code === '23505') {
                 const previous = result(await db.from('inbox_outbox').select('*').eq('client_id', row.client_id).eq('lead_id', leadId).maybeSingle());
-                if (previous && previous.kind === row.kind && previous.text === row.text && previous.audio_url === row.audio_url) return Response.json(previous, { status: 202 });
+                if (previous && previous.kind === row.kind && previous.text === row.text && previous.audio_url === row.audio_url && (previous.image_url ?? null) === picture) return Response.json(previous, { status: 202 });
             }
             return Response.json(result(inserted), { status: 202 });
+        }
+        if (id && action === 'read' && path.length === 2 && request.method === 'POST') {
+            const body = object(await request.json());
+            if (typeof body.unread !== 'boolean') throw new InputError('Indicá si la conversación queda leída o sin leer.');
+            // Sin tocar updated_at: marcar como leída no reordena la bandeja.
+            const fields = body.unread ? { unread: true } : { unread: false, read_at: new Date().toISOString() };
+            const row = result(await db.from('leads').update(fields).eq('id', uuid(id)).select('id,unread').maybeSingle());
+            if (!row) return Response.json({ error: 'No se encontró el contacto.' }, { status: 404 });
+            return Response.json(row);
         }
         if (id && action === 'messages' && path.length === 3 && request.method === 'DELETE') {
             const leadId = uuid(id);
@@ -206,7 +261,7 @@ async function handle(request: Request, context: Context) {
     } catch (e) {
         const error = e as Error & { code?: string };
         const missing = ['42P01', '42703', 'PGRST204', 'PGRST205', 'PGRST202'].includes(error.code || '');
-        return Response.json({ error: missing ? 'Falta actualizar las tablas del CRM. Ejecutá supabase_migration_automations_crm.sql.' : error instanceof InputError || error instanceof SyntaxError ? error.message : 'No se pudo completar la operación de la bandeja.', migrationNeeded: missing }, { status: missing ? 428 : error instanceof InputError || error instanceof SyntaxError ? 400 : 500 });
+        return Response.json({ error: missing ? 'Falta actualizar las tablas del CRM. Ejecutá supabase_migration_crm_inbox_v2.sql en Supabase.' : error instanceof InputError || error instanceof SyntaxError ? error.message : 'No se pudo completar la operación de la bandeja.', migrationNeeded: missing }, { status: missing ? 428 : error instanceof InputError || error instanceof SyntaxError ? 400 : 500 });
     }
 }
 

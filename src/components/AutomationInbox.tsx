@@ -2,11 +2,13 @@
 /* Las imágenes de conversaciones llegan desde URLs temporales de Instagram. */
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CalendarClock, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, Square, Star, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, CheckCheck, ImagePlus, Mail, MailOpen, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, Square, Star, X } from 'lucide-react';
 import type { Tag } from '@/lib/automation-types';
 import { prepareAudioFile, recordedAudioWav } from '@/lib/crm-audio';
 import { localDateTime, scheduledSendAt } from '@/lib/inbox-schedule';
+import { prepareImageFile, uploadImageFile } from '@/lib/crm-image';
 import MigrationBanner from '@/components/MigrationBanner';
+import PushToggle from '@/components/PushToggle';
 import styles from './AutomationInbox.module.css';
 
 type Contact = {
@@ -19,13 +21,14 @@ type Contact = {
     qualification: string;
     opted_out: boolean;
     last_inbound_at: string | null;
+    unread?: boolean;
     tags: Tag[];
 };
 type Attachment = { type: string; url?: string; payload?: { url?: string } };
 type Message = {
     id: string;
     direction: 'inbound' | 'outbound';
-    kind: 'text' | 'audio';
+    kind: 'text' | 'audio' | 'image';
     text: string | null;
     audio_url: string | null;
     attachments: Attachment[];
@@ -35,7 +38,7 @@ type Message = {
     scheduled_at?: string | null;
 };
 type ConversationData = { lead: Contact; messages: Message[]; canReply: boolean; replyBlockedReason: string | null; truncated: boolean };
-type InboxData = { leads: Contact[]; total: number; hasMore: boolean };
+type InboxData = { leads: Contact[]; total: number; hasMore: boolean; unreadCount?: number | null };
 type InFlight = { key: string; request: number; promise: Promise<void> };
 const qualification: Record<string, string> = { new: 'Nuevo', qualified: 'Calificado', customer: 'Cliente', unqualified: 'No calificado' };
 const statuses: Record<string, string> = { queued: 'En cola', sending: 'Enviando', sent: 'Enviado', failed: 'Falló', blocked: 'Bloqueado', skipped: 'Omitido', uncertain: 'Revisar en Instagram' };
@@ -52,9 +55,14 @@ async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> 
     return data as T;
 }
 
-export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; onTagsChange?: () => void }) {
+export default function AutomationInbox({ tags, onTagsChange, initialLeadId = null, onUnreadChange }: { tags: Tag[]; onTagsChange?: () => void; initialLeadId?: string | null; onUnreadChange?: (count: number | null) => void }) {
     const [contacts, setContacts] = useState<Contact[]>([]);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(initialLeadId);
+    const [unreadOnly, setUnreadOnly] = useState(false);
+    const [unreadCount, setUnreadCount] = useState<number | null>(null);
+    const [markingAll, setMarkingAll] = useState(false);
+    const unreadCallback = useRef(onUnreadChange);
+    useEffect(() => { unreadCallback.current = onUnreadChange; }, [onUnreadChange]);
     const [search, setSearch] = useState('');
     const [tag, setTag] = useState('');
     const [starred, setStarred] = useState(false);
@@ -69,7 +77,7 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
     const queryRef = useRef(0);
     const inFlightRef = useRef<InFlight | null>(null);
     const refresh = useCallback((showLoading = false, force = false) => {
-        const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}) });
+        const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}), ...(unreadOnly ? { unread: 'true' } : {}) });
         const key = query.toString();
         const pending = inFlightRef.current;
         if (!force && pending?.key === key && pending.request === queryRef.current) {
@@ -83,6 +91,8 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
                 const data = await api<InboxData>(`/inbox?${query}`);
                 if (request !== queryRef.current) return;
                 setContacts(data.leads); setTotal(data.total); setHasMore(data.hasMore); setError(''); setMissing(false);
+                const unread = typeof data.unreadCount === 'number' ? data.unreadCount : null;
+                setUnreadCount(unread); unreadCallback.current?.(unread);
             } catch (e) {
                 if (request !== queryRef.current) return;
                 const failure = e as Error & { migrationNeeded?: boolean };
@@ -94,7 +104,13 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
         })();
         inFlightRef.current = { key, request, promise };
         return promise;
-    }, [search, page, tag, quality, starred]);
+    }, [search, page, tag, quality, starred, unreadOnly]);
+    async function markAllRead() {
+        setMarkingAll(true);
+        try { await api('/inbox/read-all', 'POST'); await refresh(false, true); }
+        catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron marcar como leídas.'); }
+        finally { setMarkingAll(false); }
+    }
     useEffect(() => {
         const sequence = queryRef;
         const debounce = window.setTimeout(() => void refresh(true), 250);
@@ -105,6 +121,7 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
         return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh]);
     return <section className={styles.inbox} aria-label="Bandeja de conversaciones">
+        <PushToggle />
         <div className={styles.toolbar}>
             <label className={styles.search}><Search size={17} /><span className={styles.srOnly}>Buscar contactos</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Buscar nombre, usuario o notas" maxLength={100} /></label>
             <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
@@ -115,16 +132,25 @@ export default function AutomationInbox({ tags, onTagsChange }: { tags: Tag[]; o
         {missing ? <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh(true)} /> : error && <p className={styles.error} role="alert">{error}</p>}
         <div className={`${styles.layout} ${selectedId ? styles.hasConversation : ''}`}>
             <aside className={styles.contacts} aria-label="Contactos">
-                <div className={styles.listHeader}><strong>Instagram</strong><span>{total} {total === 1 ? 'contacto' : 'contactos'}</span></div>
+                <div className={styles.listHeader}>
+                    <div className={styles.segmented} role="group" aria-label="Qué conversaciones ver">
+                        <button type="button" aria-pressed={!unreadOnly} className={!unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(false); setPage(0); }}>Todas</button>
+                        <button type="button" aria-pressed={unreadOnly} className={unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(true); setPage(0); }} disabled={unreadCount === null} title={unreadCount === null ? 'Falta correr supabase_migration_crm_inbox_v2.sql' : undefined}>
+                            Sin responder{unreadCount ? <span className={styles.count}>{unreadCount}</span> : null}
+                        </button>
+                    </div>
+                    <span>{total} {total === 1 ? 'contacto' : 'contactos'}</span>
+                </div>
+                {unreadOnly && Boolean(unreadCount) && <button type="button" className={styles.markAll} disabled={markingAll} onClick={() => void markAllRead()}><CheckCheck size={14} />{markingAll ? 'Marcando…' : 'Marcar todas como leídas'}</button>}
                 {loading && <p className={styles.empty} role="status">Cargando contactos…</p>}
-                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{search || tag || quality || starred ? 'No hay contactos con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando recibas mensajes o comentarios.'}</p></div>}
-                <div className={styles.contactList}>{contacts.map((contact) => <button key={contact.id} type="button" className={`${styles.contact} ${selectedId === contact.id ? styles.activeContact : ''}`} aria-pressed={selectedId === contact.id} onClick={() => setSelectedId(contact.id)}>
+                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{unreadOnly && !search && !tag && !quality && !starred ? 'No hay conversaciones esperando respuesta.' : search || tag || quality || starred || unreadOnly ? 'No hay contactos con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando recibas mensajes o comentarios.'}</p></div>}
+                <div className={styles.contactList}>{contacts.map((contact) => <button key={contact.id} type="button" className={`${styles.contact} ${selectedId === contact.id ? styles.activeContact : ''} ${contact.unread ? styles.unreadContact : ''}`} aria-pressed={selectedId === contact.id} onClick={() => setSelectedId(contact.id)}>
                     <span className={styles.avatar}>{label(contact).replace('@', '').slice(0, 1).toUpperCase()}</span>
-                    <span className={styles.contactCopy}><span className={styles.contactName}>{label(contact)}{contact.starred && <Star size={13} fill="currentColor" />}</span><span className={styles.muted}>{qualification[contact.qualification] || contact.qualification}</span><span className={styles.tagRow}>{contact.tags.map((item) => <span className={styles.smallTag} key={item.id}>{item.name}</span>)}</span><span className={styles.timestamp}>{contact.last_inbound_at ? date(contact.last_inbound_at) : 'Sin mensaje entrante todavía'}</span></span>
+                    <span className={styles.contactCopy}><span className={styles.contactName}>{label(contact)}{contact.starred && <Star size={13} fill="currentColor" />}{contact.unread && <span className={styles.unreadDot} aria-label="Sin responder" />}</span><span className={styles.muted}>{qualification[contact.qualification] || contact.qualification}</span><span className={styles.tagRow}>{contact.tags.map((item) => <span className={styles.smallTag} key={item.id}>{item.name}</span>)}</span><span className={styles.timestamp}>{contact.last_inbound_at ? date(contact.last_inbound_at) : 'Sin mensaje entrante todavía'}</span></span>
                 </button>)}</div>
                 <div className={styles.pagination}><button type="button" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}>Anterior</button><span>{page + 1}</span><button type="button" disabled={!hasMore || loading} onClick={() => setPage(page + 1)}>Siguiente</button></div>
             </aside>
-            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} refreshVersion={refreshVersion} onBack={() => setSelectedId(null)} onChanged={() => void refresh(false, true)} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés enviar texto y audio cuando esté abierta la ventana de respuesta de Instagram.</span></div>}
+            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} refreshVersion={refreshVersion} onBack={() => setSelectedId(null)} onChanged={() => void refresh(false, true)} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés enviar texto, audio e imágenes cuando esté abierta la ventana de respuesta de Instagram.</span></div>}
         </div>
     </section>;
 }
@@ -142,7 +168,11 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const [createdTags, setCreatedTags] = useState<Tag[]>([]);
     const [tagName, setTagName] = useState('');
     const [addTagId, setAddTagId] = useState('');
-    const [kind, setKind] = useState<'text' | 'audio'>('text');
+    const [kind, setKind] = useState<'text' | 'audio' | 'image'>('text');
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState('');
+    const [preparingImage, setPreparingImage] = useState(false);
+    const [marking, setMarking] = useState(false);
     const [text, setText] = useState('');
     const [audioUrl, setAudioUrl] = useState('');
     const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -159,6 +189,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const streamRef = useRef<MediaStream | null>(null);
     const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previewRef = useRef('');
+    const imagePreviewRef = useRef('');
     const aliveRef = useRef(true);
     const loadedRef = useRef(false);
     const requestRef = useRef(0);
@@ -210,6 +241,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
         if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
         streamRef.current?.getTracks().forEach((track) => track.stop());
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+        if (imagePreviewRef.current) URL.revokeObjectURL(imagePreviewRef.current);
     }, []);
     const allTags = [...tags, ...createdTags.filter((item) => !tags.some((tag) => tag.id === item.id))];
     const report = (e: unknown) => setError(e instanceof Error ? e.message : 'No se pudo completar la operación.');
@@ -251,6 +283,28 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
             if (aliveRef.current) setChosenAudio(prepared);
         } catch (error) { if (aliveRef.current) report(error); }
         finally { if (aliveRef.current) setPreparingAudio(false); }
+    }
+    async function chooseImage(file: File | null) {
+        if (!file) return;
+        setPreparingImage(true); setError('');
+        try {
+            const prepared = await prepareImageFile(file);
+            if (!aliveRef.current) return;
+            if (imagePreviewRef.current) URL.revokeObjectURL(imagePreviewRef.current);
+            imagePreviewRef.current = URL.createObjectURL(prepared);
+            setImageFile(prepared); setImagePreview(imagePreviewRef.current);
+        } catch (e) { if (aliveRef.current) report(e); }
+        finally { if (aliveRef.current) setPreparingImage(false); }
+    }
+    function clearImage() {
+        if (imagePreviewRef.current) URL.revokeObjectURL(imagePreviewRef.current);
+        imagePreviewRef.current = ''; setImageFile(null); setImagePreview('');
+    }
+    async function toggleRead() {
+        if (!data) return;
+        setMarking(true); setError('');
+        try { await api(`/inbox/${id}/read`, 'POST', { unread: !data.lead.unread }); await refresh(true); onChanged(); }
+        catch (e) { report(e); } finally { setMarking(false); }
     }
     function clearAudio() {
         if (previewRef.current) URL.revokeObjectURL(previewRef.current);
@@ -298,13 +352,18 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     }
     async function sendMessage(event: React.FormEvent) {
         event.preventDefault();
-        if (busy || recording || preparingAudio || requestingMicrophone) return;
+        if (busy || recording || preparingAudio || requestingMicrophone || preparingImage) return;
         setBusy(true); setError(''); setNotice('');
         try {
             if (delivery === 'scheduled' && !Number.isFinite(Date.parse(scheduledAt))) throw new Error('Elegí una fecha y hora válidas para programar el mensaje.');
             const scheduled = delivery === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
-            const draftSignature = JSON.stringify({ ...(kind === 'text' ? { kind, text: text.trim() } : { kind, audio_url: audioUrl.trim() }), ...(scheduled ? { scheduled_at: scheduled } : {}) });
-            if (scheduled && (audioFile || sendRef.current?.signature !== draftSignature)) scheduledSendAt(scheduled);
+            const draftSignature = JSON.stringify({ ...(kind === 'text' ? { kind, text: text.trim() } : kind === 'audio' ? { kind, audio_url: audioUrl.trim() } : { kind, image: imageFile?.name }), ...(scheduled ? { scheduled_at: scheduled } : {}) });
+            if (scheduled && (audioFile || imageFile || sendRef.current?.signature !== draftSignature)) scheduledSendAt(scheduled);
+            let picture = '';
+            if (kind === 'image') {
+                if (!imageFile) throw new Error('Elegí una imagen para enviar.');
+                picture = await uploadImageFile(imageFile);
+            }
             let url = audioUrl.trim();
             if (kind === 'audio' && audioFile) {
                 const form = new FormData(); form.set('file', audioFile);
@@ -313,14 +372,14 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 if (!response.ok) throw new Error(uploaded.error || 'No se pudo subir el audio.');
                 url = uploaded.url; setAudioUrl(url); setAudioFile(null);
             }
-            const payload = { ...(kind === 'text' ? { kind, text: text.trim() } : { kind, audio_url: url }), ...(scheduled ? { scheduled_at: scheduled } : {}) };
+            const payload = { ...(kind === 'text' ? { kind, text: text.trim() } : kind === 'audio' ? { kind, audio_url: url } : { kind, image_url: picture }), ...(scheduled ? { scheduled_at: scheduled } : {}) };
             const signature = JSON.stringify(payload);
             if (sendRef.current?.signature !== signature) {
                 if (scheduled) scheduledSendAt(scheduled);
                 sendRef.current = { signature, id: crypto.randomUUID() };
             }
             await api(`/inbox/${id}/messages`, 'POST', { ...payload, client_id: sendRef.current!.id });
-            sendRef.current = null; setText(''); clearAudio(); setDelivery('now'); setScheduledAt('');
+            sendRef.current = null; setText(''); clearAudio(); clearImage(); setDelivery('now'); setScheduledAt('');
             setNotice(scheduled ? `Mensaje programado para ${date(scheduled)}. Podés cancelarlo mientras esté pendiente.` : 'Mensaje en cola. El estado se actualiza cuando se envía.');
             await refresh(true); onChanged();
         } catch (e) { report(e); } finally { setBusy(false); }
@@ -328,7 +387,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const expires = data?.lead.last_inbound_at ? Date.parse(data.lead.last_inbound_at) + 24 * 60 * 60_000 : 0;
     const canReply = Boolean(data?.canReply && expires > clock && !data.lead.opted_out);
     const canSchedule = Boolean(data?.lead.instagram_user_id && !data.lead.opted_out);
-    const audioBusy = busy || preparingAudio || requestingMicrophone;
+    const audioBusy = busy || preparingAudio || requestingMicrophone || preparingImage;
     async function cancelMessage(message: Message) {
         if (busy || !message.id.startsWith('outbox:')) return;
         setBusy(true); setError('');
@@ -338,7 +397,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
         } catch (error) { report(error); } finally { setBusy(false); }
     }
     return <div className={styles.conversation}>
-        <div className={styles.conversationHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Volver a contactos"><ArrowLeft size={18} /></button><div><h3>{data ? label(data.lead) : 'Conversación'}</h3><span className={styles.muted}>{data?.lead.username && data.lead.display_name ? `@${data.lead.username} · ` : ''}Instagram</span></div>{data && <button className={`${styles.iconButton} ${data.lead.starred ? styles.starred : ''}`} type="button" disabled={saving} onClick={() => void patch({ starred: !data.lead.starred })} aria-label={data.lead.starred ? 'Quitar de destacados' : 'Destacar contacto'} aria-pressed={data.lead.starred}><Star size={19} fill={data.lead.starred ? 'currentColor' : 'none'} /></button>}</div>
+        <div className={styles.conversationHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Volver a contactos"><ArrowLeft size={18} /></button><div><h3>{data ? label(data.lead) : 'Conversación'}</h3><span className={styles.muted}>{data?.lead.username && data.lead.display_name ? `@${data.lead.username} · ` : ''}Instagram</span></div>{data && typeof data.lead.unread === 'boolean' && <button className={`${styles.iconButton} ${data.lead.unread ? styles.starred : ''}`} type="button" disabled={marking} onClick={() => void toggleRead()} aria-label={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'} title={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'}>{data.lead.unread ? <MailOpen size={18} /> : <Mail size={18} />}</button>}{data && <button className={`${styles.iconButton} ${data.lead.starred ? styles.starred : ''}`} type="button" disabled={saving} onClick={() => void patch({ starred: !data.lead.starred })} aria-label={data.lead.starred ? 'Quitar de destacados' : 'Destacar contacto'} aria-pressed={data.lead.starred}><Star size={19} fill={data.lead.starred ? 'currentColor' : 'none'} /></button>}</div>
         {error && <p className={styles.error} role="alert">{error}</p>}
         {fetchError && <p className={styles.error} role="alert">{fetchError}</p>}
         {missing && <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh()} />}
@@ -373,12 +432,17 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 </div>)}
             </div>
             <form className={styles.composer} onSubmit={(event) => void sendMessage(event)}>
-                <p className={styles.windowNote}>{canReply ? `Envío inmediato disponible hasta ${date(new Date(expires).toISOString())}.` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}{!canReply && ' Podés preparar un texto o audio sin enviarlo.'}</p>
+                <p className={styles.windowNote}>{canReply ? `Envío inmediato disponible hasta ${date(new Date(expires).toISOString())}.` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}{!canReply && ' Podés preparar un mensaje sin enviarlo.'}</p>
                 <div className={styles.composerModes}>
                     <button type="button" className={kind === 'text' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'text'} onClick={() => setKind('text')}>Texto</button>
                     <button type="button" className={kind === 'audio' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => setKind('audio')}>Audio</button>
+                    <button type="button" className={kind === 'image' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'image'} onClick={() => setKind('image')}>Imagen</button>
                 </div>
-                {kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={3} disabled={busy} onChange={(event) => setText(event.target.value)} /><span className={styles.muted}>{text.length}/1000</span></label> : <div className={styles.audioComposer}>
+                {kind === 'image' ? <div className={styles.imageComposer}>
+                    {imagePreview ? <div className={styles.imagePreview}><img src={imagePreview} alt="Imagen a enviar" /><button type="button" className={styles.iconButton} disabled={busy} onClick={clearImage} aria-label="Quitar imagen"><X size={16} /></button></div>
+                        : <label className={`${styles.uploadButton} ${audioBusy ? styles.disabled : ''}`}><ImagePlus size={15} />{preparingImage ? 'Preparando imagen…' : 'Elegir imagen'}<input aria-label="Elegir imagen" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic" disabled={audioBusy} onChange={(event) => { void chooseImage(event.target.files?.[0] || null); event.target.value = ''; }} /></label>}
+                    <span className={styles.muted}>JPG, PNG, GIF o WEBP. Se ajusta sola al tamaño que acepta Instagram. Va sin texto: si querés acompañarla, mandá un mensaje aparte.</span>
+                </div> : kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={3} disabled={busy} onChange={(event) => setText(event.target.value)} /><span className={styles.muted}>{text.length}/1000</span></label> : <div className={styles.audioComposer}>
                     <div className={styles.row}>
                         <label className={`${styles.uploadButton} ${audioBusy || recording ? styles.disabled : ''}`}><Paperclip size={15} />Cargar archivo<input aria-label="Cargar archivo de audio" type="file" accept="audio/mpeg,audio/ogg,application/ogg,audio/mp4,audio/aac,audio/wav,.mp3,.ogg,.oga,.opus,.m4a,.wav,.aac" disabled={audioBusy || recording} onChange={(event) => { void chooseAudio(event.target.files?.[0] || null); event.target.value = ''; }} /></label>
                         <button className={styles.button} type="button" disabled={audioBusy} onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>{recording ? <><Square size={14} />Terminar grabación</> : <><Mic size={15} />{requestingMicrophone ? 'Esperando permiso…' : 'Grabar audio'}</>}</button>
@@ -396,7 +460,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                     {delivery === 'scheduled' && <label>Fecha y hora local<input type="datetime-local" aria-label="Fecha y hora del mensaje" value={scheduledAt} required disabled={audioBusy || recording} onChange={(event) => setScheduledAt(event.target.value)} /></label>}
                 </div>
                 {delivery === 'scheduled' && <p className={styles.windowNote}>Se verificará la ventana de 24 horas de Instagram al enviarlo. Si está cerrada o el contacto desactiva los mensajes, quedará bloqueado y se mostrará el motivo.</p>}
-                <div className={styles.sendRow}><span className={styles.muted}>{delivery === 'scheduled' ? 'Podés cancelar un envío mientras esté pendiente.' : 'El estado del envío aparece en el historial.'}</span><button type="submit" className={styles.sendButton} disabled={(delivery === 'now' ? !canReply : !canSchedule || !scheduledAt) || audioBusy || recording || (kind === 'text' ? !text.trim() : !audioFile && !audioUrl.trim())}>{delivery === 'scheduled' ? <CalendarClock size={16} /> : <Send size={16} />}{busy ? 'Guardando…' : delivery === 'scheduled' ? 'Programar mensaje' : 'Enviar'}</button></div>
+                <div className={styles.sendRow}><span className={styles.muted}>{delivery === 'scheduled' ? 'Podés cancelar un envío mientras esté pendiente.' : 'El estado del envío aparece en el historial.'}</span><button type="submit" className={styles.sendButton} disabled={(delivery === 'now' ? !canReply : !canSchedule || !scheduledAt) || audioBusy || recording || (kind === 'text' ? !text.trim() : kind === 'image' ? !imageFile : !audioFile && !audioUrl.trim())}>{delivery === 'scheduled' ? <CalendarClock size={16} /> : <Send size={16} />}{busy ? 'Guardando…' : delivery === 'scheduled' ? 'Programar mensaje' : 'Enviar'}</button></div>
             </form>
         </>}
     </div>;

@@ -1,0 +1,28 @@
+.bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: .8rem;
+}
+.bar > svg { flex-shrink: 0; color: var(--text-primary); }
+.bar[data-state='denied'] > svg { color: var(--accent-negative); }
+.copy { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.45; }
+.copy strong { color: var(--text-primary); font-size: .84rem; }
+.message { color: var(--text-primary); }
+.actions { display: flex; gap: 8px; }
+.actions button {
+  font: inherit; font-size: .8rem;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: var(--card-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.actions button:hover:not(:disabled) { background: var(--hover-bg); }
+.actions button:disabled { opacity: .55; cursor: wait; }
+.actions .primary { background: var(--accent-strong); color: var(--on-accent); border-color: transparent; }
+.actions .primary:hover:not(:disabled) { background: var(--accent-strong); opacity: .9; }

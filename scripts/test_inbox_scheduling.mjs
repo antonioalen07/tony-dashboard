@@ -118,11 +118,11 @@ test('UI permite recuperar el mismo mensaje programado tras la fecha elegida y u
     const when = new Date(Date.now() - 60000).toISOString();
     const requests = []; const errors = [];
     const payload = { kind: 'text', text: 'Hola', scheduled_at: when };
-    const ctx = { busy: false, recording: false, preparingAudio: false, requestingMicrophone: false,
+    const ctx = { busy: false, recording: false, preparingAudio: false, requestingMicrophone: false, preparingImage: false, imageFile: null,
         delivery: 'scheduled', scheduledAt: when, audioUrl: '', audioFile: null, kind: 'text', text: 'Hola', id: leadId,
         sendRef: { current: { signature: JSON.stringify(payload), id: clientId } }, Date, crypto: webcrypto, scheduledSendAt,
         date: (value) => value, api: async (path, method, body) => { requests.push({ path, method, body }); },
-        refresh: async () => {}, onChanged() {}, clearAudio() {}, setBusy() {}, setError() {}, setNotice() {}, setText() {}, setDelivery() {}, setScheduledAt() {}, report(error) { errors.push(error); },
+        refresh: async () => {}, onChanged() {}, clearAudio() {}, clearImage() {}, setBusy() {}, setError() {}, setNotice() {}, setText() {}, setDelivery() {}, setScheduledAt() {}, report(error) { errors.push(error); },
     };
     runInNewContext(callback, ctx);
     await ctx.sendCallback({ preventDefault() {} });

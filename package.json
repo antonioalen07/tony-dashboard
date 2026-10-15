@@ -13,7 +13,7 @@
     "inspect:knowledge": "node scripts/inspect_ai_knowledge.mjs",
     "lint:variants": "eslint src/app/variantes src/app/api/variants src/lib/variant-caption.ts src/lib/studio-types.ts worker/jobs/publisher.mjs worker/lib/publisher-caption.test.mjs scripts/test_variant_caption.mjs scripts/test_variant_caption_ui.mjs",
     "test:automations:http": "node scripts/test_automation_http.mjs",
-    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/lib/automation-data.ts src/lib/crm-audio.ts src/components/AutomationShortcut.tsx src/components/AutomationInbox.tsx src/components/AutomationConnection.tsx src/components/KeywordChips.tsx src/components/ReplyPhrases.tsx src/components/StoryAutomationEditor.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs src/lib/inbox-schedule.ts src/lib/followup-delay.ts src/components/AutomationAudioAttachment.tsx scripts/test_inbox_scheduling.mjs scripts/test_followup_delay.mjs"
+    "lint:automations": "eslint src/app/automatizaciones src/app/api/automations src/app/api/webhooks/instagram src/lib/automation-types.ts src/lib/automation-validation.ts src/lib/automation-data.ts src/lib/crm-audio.ts src/components/AutomationShortcut.tsx src/components/AutomationInbox.tsx src/components/AutomationConnection.tsx src/components/KeywordChips.tsx src/components/ReplyPhrases.tsx src/components/StoryAutomationEditor.tsx worker/lib/*.mjs worker/jobs/automations.mjs scripts/test_private_reply.mjs scripts/subscribe_webhooks.mjs scripts/test_crm_audio.mjs scripts/test_inbox_refresh.mjs src/lib/inbox-schedule.ts src/lib/followup-delay.ts src/components/AutomationAudioAttachment.tsx scripts/test_inbox_scheduling.mjs scripts/test_followup_delay.mjs src/components/AutomationImageAttachment.tsx src/components/PushToggle.tsx src/lib/crm-image.ts src/lib/push.ts src/app/api/push src/app/manifest.ts"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",
@@ -27,7 +27,8 @@
     "openai": "^6.39.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -35,6 +36,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",

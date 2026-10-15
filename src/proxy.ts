@@ -18,6 +18,8 @@ import { AUTH_HEADER, COOKIE_NAME, AuthUnavailableError, resolveSession, signAut
  */
 const PUBLIC_PATHS = ['/login', '/api/login', '/api/logout', '/api/webhooks/instagram'];
 const PUBLIC_LEGAL_PAGES = new Set(['/privacidad', '/eliminacion-datos']);
+// La app instalable: el navegador los pide sin sesión (p. ej. al actualizar el service worker).
+const PUBLIC_APP_FILES = new Set(['/sw.js', '/manifest.webmanifest']);
 const PASSWORD_CHANGE_PATHS = ['/cuenta', '/api/account/password', '/api/me', '/api/logout'];
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -33,7 +35,7 @@ export async function proxy(request: NextRequest) {
 
   // Sólo documentos legales públicos de lectura. No incluye descendientes,
   // APIs ni acciones de servidor POST, y no depende de la base de sesiones.
-  if ((request.method === 'GET' || request.method === 'HEAD') && PUBLIC_LEGAL_PAGES.has(pathname)) {
+  if ((request.method === 'GET' || request.method === 'HEAD') && (PUBLIC_LEGAL_PAGES.has(pathname) || PUBLIC_APP_FILES.has(pathname))) {
     const headers = new Headers(request.headers);
     headers.delete(AUTH_HEADER);
     return NextResponse.next({ request: { headers } });

@@ -11,6 +11,16 @@ export function inboundMessage(event, account) {
   const attachments = (Array.isArray(m.attachments) ? m.attachments : []).slice(0, 20).map((a) => ({ type: String(a.type || 'file'), payload: { url: typeof a.payload?.url === 'string' ? a.payload.url : null } }));
   return { user: event.sender.id, mid: m.mid, text: m.text || '', at: new Date(Math.min(event.timestamp, Date.now())).toISOString(), attachments, storyId: m.reply_to?.story?.id || null };
 }
+// Eco: lo que sale de la cuenta (respuestas desde la app de Instagram o desde BAKO).
+export function echoMessage(event, account) {
+  const m = event.message;
+  if (!m?.mid || !m.is_echo || event.sender?.id !== account || !event.recipient?.id || event.recipient.id === account || typeof event.timestamp !== 'number' || !Number.isFinite(event.timestamp) || event.timestamp <= 0) return null;
+  const attachments = (Array.isArray(m.attachments) ? m.attachments : []).slice(0, 20).map((a) => ({ type: String(a.type || 'file'), payload: { url: typeof a.payload?.url === 'string' ? a.payload.url : null } }));
+  return { user: event.recipient.id, mid: m.mid, text: m.text || '', at: new Date(Math.min(event.timestamp, Date.now())).toISOString(), attachments };
+}
+export async function recordEcho(db, echo, account) {
+  checked(await db.rpc('crm_record_echo', { p_account: account, p_user: echo.user, p_mid: echo.mid, p_text: echo.text, p_at: echo.at, p_attachments: echo.attachments }));
+}
 export async function receiveMessage(db, message, account, rules) {
   const rule = message.storyId ? pickStoryAutomation(message.text, rules, message.at) : null;
   checked(await db.rpc('crm_receive_message', { p_account: account, p_user: message.user, p_mid: message.mid, p_text: message.text, p_at: message.at, p_attachments: message.attachments, p_story_id: message.storyId, p_rule: rule?.id || null }));

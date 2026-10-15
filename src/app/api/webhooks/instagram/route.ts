@@ -2,7 +2,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { supabase } from '@/utils/supabase';
 import { enqueueComment } from '../../../../../worker/lib/automation-core.mjs';
 import { createMeta } from '../../../../../worker/lib/meta.mjs';
-import { inboundMessage, receiveMessage } from '../../../../../worker/lib/crm.mjs';
+import { echoMessage, inboundMessage, receiveMessage, recordEcho } from '../../../../../worker/lib/crm.mjs';
+import { after } from 'next/server';
+import { notifyInboundMessages } from '@/lib/push';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 interface Change {
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
         const { data: stories, error: storyError } = hasMessages ? await supabase.from('story_automations').select('*').eq('active', true) : { data: [], error: null };
         if (storyError) throw storyError;
         const meta = createMeta(process.env);
+        const inbound: string[] = [];
         for (const entry of body.entry || []) {
             if (entry.id !== account)
                 continue;
@@ -93,9 +96,13 @@ export async function POST(request: Request) {
             }
             for (const event of entry.messaging || []) {
                 const message = inboundMessage(event, account);
-                if (message) await receiveMessage(supabase, message, account, stories || []);
+                if (message) { await receiveMessage(supabase, message, account, stories || []); inbound.push(message.mid); continue; }
+                const echo = echoMessage(event, account);
+                if (echo) await recordEcho(supabase, echo, account);
             }
         }
+        // El aviso al teléfono no demora la respuesta a Meta (y nunca la hace fallar).
+        if (inbound.length) after(() => notifyInboundMessages(inbound).catch((error) => console.error('[push]', (error as Error).message)));
         return Response.json({ received: true });
     }
     catch {

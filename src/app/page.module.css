@@ -41,9 +41,11 @@
 
 .bottomRow {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
+/* Sin esto, los títulos largos y el gráfico estiran la columna más allá de la pantalla. */
+.bottomRow > * { min-width: 0; }
 
 /* Goals */
 .goal {
@@ -83,6 +85,6 @@
 @media (max-width: 1200px) {
   .chartsRow,
   .bottomRow {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }

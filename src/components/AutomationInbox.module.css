@@ -101,6 +101,17 @@
 .deliveryControls label { display:flex; flex-direction:column; gap:6px; font-size:.75rem; flex:1 1 180px; }
 .scheduledMessage { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:8px; font-size:.75rem; color:var(--text-secondary); }
 .inbox .cancelMessage { margin-top:8px; padding:5px 8px; font-size:.72rem; background:transparent; }
+.segmented { display:inline-flex; gap:2px; padding:3px; border:1px solid var(--card-border); border-radius:999px; background:var(--card-elevated); }
+.inbox .segmented button { border:0; background:transparent; padding:5px 11px; border-radius:999px; font-size:.75rem; color:var(--text-secondary); display:inline-flex; align-items:center; gap:6px; }
+.inbox .segmented .segmentOn { background:var(--accent-strong); color:var(--on-accent); }
+.count { min-width:18px; height:18px; padding:0 5px; border-radius:999px; display:inline-grid; place-items:center; font-size:.66rem; font-weight:700; background:var(--accent-negative); color:#fff; font-variant-numeric:tabular-nums; }
+.inbox .markAll { margin:8px 8px 0; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:.75rem; padding:8px 10px; }
+.inbox .unreadContact .contactName { font-weight:800; }
+.inbox .unreadContact .timestamp { color:var(--text-primary); font-weight:600; }
+.unreadDot { width:8px; height:8px; border-radius:50%; background:var(--accent-negative); flex-shrink:0; margin-left:auto; }
+.imageComposer { display:flex; flex-direction:column; gap:9px; }
+.imagePreview { display:flex; align-items:flex-start; gap:8px; }
+.imagePreview img { max-width:min(240px,100%); max-height:220px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--card-border); }
 .srOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 @media(max-width:1280px) {
     .layout { grid-template-columns:255px minmax(0,1fr); height:750px; }
@@ -131,4 +142,15 @@
     .tagControls input,.tagControls select { flex-basis:100%; }
     .sendRow { align-items:flex-end; }
     .sendRow>span { max-width:60%; }
+    /* Conversación abierta = pantalla completa, como una app de chat. */
+    .messages { overscroll-behavior:contain; }
+    .hasConversation .conversation { position:fixed; inset:0; z-index:250; background:var(--bg-color); padding-bottom:env(safe-area-inset-bottom,0px); }
+    .hasConversation .conversationHeader { padding-top:calc(12px + env(safe-area-inset-top,0px)); background:var(--card-bg); }
+    .composer { padding:10px 12px; gap:8px; }
+    .messageInput textarea { min-height:48px; }
+    .messageInput>span:last-child,.sendRow>span { display:none; }
+    .sendRow { justify-content:flex-end; }
+    .inbox .sendButton { width:100%; }
+    .deliveryControls label { flex-basis:140px; }
+    .profile[open] { max-height:55%; }
 }

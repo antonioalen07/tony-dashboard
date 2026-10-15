@@ -10,5 +10,7 @@ export function windowOpen(lead, now = Date.now()) {
   return !lead?.opted_out && Number.isFinite(at) && at <= now && now - at < 24 * 60 * 60 * 1000;
 }
 export function messagePayload(recipient, step) {
-  return { recipient, message: step.kind === 'audio' ? { attachment: { type: 'audio', payload: { url: step.audio_url } } } : { text: step.text } };
+  if (step.kind === 'audio') return { recipient, message: { attachment: { type: 'audio', payload: { url: step.audio_url } } } };
+  if (step.kind === 'image') return { recipient, message: { attachment: { type: 'image', payload: { url: step.image_url } } } };
+  return { recipient, message: { text: step.text } };
 }

@@ -3,4 +3,7 @@ type Event = { sender?: { id: string }; recipient?: { id: string }; timestamp?: 
 type Inbound = { user: string; mid: string; text: string; at: string; attachments: unknown[]; storyId: string | null };
 export function pickStoryAutomation(text: string, rules: Rule[], at: string): Rule | null;
 export function inboundMessage(event: Event, account: string): Inbound | null;
+type Echo = { user: string; mid: string; text: string; at: string; attachments: unknown[] };
+export function echoMessage(event: Event, account: string): Echo | null;
+export function recordEcho(db: { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }> }, echo: Echo, account: string): Promise<void>;
 export function receiveMessage(db: { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }> }, message: Inbound, account: string, rules: Rule[]): Promise<void>;
