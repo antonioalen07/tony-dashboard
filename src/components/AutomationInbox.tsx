@@ -353,6 +353,10 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
             setNotice(r.added ? `Se agregaron ${r.added} mensaje${r.added === 1 ? '' : 's'} desde Instagram.` : r.skipped && r.skipped !== 'reciente' ? `No se pudo sincronizar: ${r.skipped}.` : 'La conversación ya está al día con Instagram.');
         } catch (e) { report(e); } finally { setSyncing(false); }
     }
+    function loadSaved() {
+        if (saved) return;
+        api<{ items: SavedItem[] }>('/inbox/library').then((r) => setSaved(r.items)).catch((e) => { report(e); setSaved([]); });
+    }
     async function toggleSaved() {
         const open = !savedOpen;
         setSavedOpen(open);
@@ -397,7 +401,11 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
             if (!aliveRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
             streamRef.current = stream;
             clearAudio();
-            const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported(type));
+            // Safari (iPhone) graba M4A/AAC, que Instagram acepta tal cual: no se convierte (la
+            // conversión a WAV falla en iOS). El resto graba WebM/Opus y se pasa a WAV.
+            const safari = /iP(hone|ad|od)/.test(navigator.userAgent) || (/Safari\//.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android|Edg/.test(navigator.userAgent));
+            const order = safari ? ['audio/mp4', 'audio/webm;codecs=opus'] : ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'];
+            const mime = order.find((type) => MediaRecorder.isTypeSupported(type));
             const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
             recorderRef.current = recorder;
             const chunks: Blob[] = [];
@@ -411,7 +419,16 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 setRecording(false); setPreparingAudio(true);
                 try {
                     if (!chunks.length) throw new Error('No se capturó audio. Volvé a grabar o adjuntá un archivo.');
-                    const audio = await recordedAudioWav(new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' }));
+                    const type = recorder.mimeType || mime || 'audio/webm';
+                    const blob = new Blob(chunks, { type });
+                    const m4a = () => new File([blob], `audio-${Date.now()}.m4a`, { type: 'audio/mp4' });
+                    let audio: File;
+                    if (/^audio\/mp4/.test(type) && safari) audio = m4a();
+                    else {
+                        try { audio = await recordedAudioWav(blob); }
+                        catch (failure) { if (/^audio\/mp4/.test(type)) audio = m4a(); else throw failure; }
+                    }
+                    if (audio.size > 4_000_000) throw new Error('La grabación pesa más de 4 MB. Grabá un audio más corto.');
                     if (aliveRef.current) setChosenAudio(audio);
                 } catch (e) { if (aliveRef.current) report(e); }
                 finally { if (aliveRef.current) setPreparingAudio(false); }
@@ -510,8 +527,8 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 <div className={styles.composerTop}>
                     <div className={styles.modes} role="group" aria-label="Tipo de mensaje">
                         <button type="button" className={kind === 'text' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'text'} onClick={() => { setKind('text'); setSavedOpen(false); }} title="Texto"><MessageSquare size={15} /><span>Texto</span></button>
-                        <button type="button" className={kind === 'audio' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => { setKind('audio'); setSavedOpen(false); }} title="Audio"><Mic size={15} /><span>Audio</span></button>
-                        <button type="button" className={kind === 'image' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'image'} onClick={() => { setKind('image'); setSavedOpen(false); }} title="Imagen"><ImagePlus size={15} /><span>Imagen</span></button>
+                        <button type="button" className={kind === 'audio' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => { setKind('audio'); setSavedOpen(false); loadSaved(); }} title="Audio"><Mic size={15} /><span>Audio</span></button>
+                        <button type="button" className={kind === 'image' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'image'} onClick={() => { setKind('image'); setSavedOpen(false); loadSaved(); }} title="Imagen"><ImagePlus size={15} /><span>Imagen</span></button>
                         <button type="button" className={savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={savedOpen} onClick={() => void toggleSaved()} title="Audios e imágenes de tus seguimientos"><Bookmark size={15} /><span>Guardados</span></button>
                     </div>
                     <button type="button" className={delivery === 'scheduled' ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={delivery === 'scheduled'} onClick={() => { if (delivery === 'scheduled') { setDelivery('now'); } else { setDelivery('scheduled'); if (!scheduledAt) setScheduledAt(localDateTime(Date.now() + 60 * 60_000)); } }} title="Programar el envío"><CalendarClock size={15} /><span>Programar</span></button>
@@ -526,7 +543,15 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                         <button type="button" className={styles.sendButton} disabled={busy || (delivery === 'now' ? !canReply : !canSchedule || !scheduledAt)} onClick={() => void sendSaved(item)}>{delivery === 'scheduled' ? <CalendarClock size={14} /> : <Send size={14} />}{delivery === 'scheduled' ? 'Programar' : 'Enviar'}</button>
                     </div>)}
                 </div> : <div className={styles.inputRow}>
-                    <div className={styles.inputArea}>{kind === 'image' ? <div className={styles.imageComposer}>
+                    <div className={styles.inputArea}>{(kind === 'audio' || kind === 'image') && Boolean(saved?.some((item) => item.kind === kind)) && !preview && !imagePreview && <div className={styles.quickSaved}>
+                        <span className={styles.quickTitle}><Bookmark size={13} />{kind === 'audio' ? 'Tus audios guardados' : 'Tus imágenes guardadas'}</span>
+                        <div className={styles.quickList}>{saved!.filter((item) => item.kind === kind).map((item) => <div key={item.url} className={styles.quickItem}>
+                            {item.kind === 'image' ? <img src={item.url} alt="" loading="lazy" /> : <audio controls preload="none" src={item.url} />}
+                            <span className={styles.savedLabel}>{item.label}</span>
+                            <button type="button" className={styles.sendButton} disabled={busy || (delivery === 'now' ? !canReply : !canSchedule || !scheduledAt)} onClick={() => void sendSaved(item)}>{delivery === 'scheduled' ? <CalendarClock size={14} /> : <Send size={14} />}{delivery === 'scheduled' ? 'Programar' : 'Enviar'}</button>
+                        </div>)}</div>
+                        <span className={styles.quickTitle}>{kind === 'audio' ? 'O uno nuevo' : 'O una nueva'}</span>
+                    </div>}{kind === 'image' ? <div className={styles.imageComposer}>
                         {imagePreview ? <div className={styles.imagePreview}><img src={imagePreview} alt="Imagen a enviar" /><button type="button" className={styles.iconButton} disabled={busy} onClick={clearImage} aria-label="Quitar imagen"><X size={16} /></button></div>
                             : <label className={`${styles.uploadButton} ${audioBusy ? styles.disabled : ''}`}><ImagePlus size={15} />{preparingImage ? 'Preparando imagen…' : 'Elegir imagen'}<input aria-label="Elegir imagen" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic" disabled={audioBusy} onChange={(event) => { void chooseImage(event.target.files?.[0] || null); event.target.value = ''; }} /></label>}
                         <span className={styles.muted}>Va sin texto. Se ajusta sola al tamaño que acepta Instagram.</span>

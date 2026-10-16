@@ -151,6 +151,14 @@
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation:none; } }
+/* Guardados dentro de Audio / Imagen: lo primero que se ve al elegir el modo. */
+.quickSaved { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.quickTitle { display:inline-flex; align-items:center; gap:5px; font-size:.72rem; font-weight:600; color:var(--text-secondary); }
+.quickList { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; scroll-snap-type:x proximity; }
+.quickItem { flex:0 0 200px; scroll-snap-align:start; display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--card-border); border-radius:var(--radius-sm); background:var(--card-elevated); min-width:0; }
+.quickItem img { width:100%; height:96px; object-fit:cover; border-radius:6px; }
+.quickItem audio { width:100%; height:34px; }
+.inbox .quickItem .sendButton { padding:6px 10px; font-size:.75rem; }
 .srOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 @media(max-width:1280px) {
     .layout { grid-template-columns:255px minmax(0,1fr); height:750px; }
@@ -184,8 +192,7 @@
     .hasConversation .conversationHeader { padding-top:calc(12px + env(safe-area-inset-top,0px)); background:var(--card-bg); }
     .composer { padding:10px 12px; gap:8px; }
     .messageInput textarea { min-height:48px; }
-    .inbox .mode span,.inbox .modeOn span { display:none; }
-    .inbox .mode,.inbox .modeOn { padding:8px 11px; }
+    .inbox .mode,.inbox .modeOn { padding:7px 10px; font-size:.74rem; }
     .inputRow .sendButton span { display:none; }
     .saved { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .profile[open] { max-height:55%; }
