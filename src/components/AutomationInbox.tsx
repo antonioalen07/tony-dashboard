@@ -2,7 +2,7 @@
 /* Las imágenes de conversaciones llegan desde URLs temporales de Instagram. */
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CalendarClock, CheckCheck, ImagePlus, Mail, MailOpen, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, Square, Star, X } from 'lucide-react';
+import { ArrowLeft, Bell, Bookmark, CalendarClock, CheckCheck, ImagePlus, Mail, MailOpen, MessageSquare, Mic, Paperclip, RefreshCw, Search, Send, SlidersHorizontal, Square, Star, X } from 'lucide-react';
 import type { Tag } from '@/lib/automation-types';
 import { prepareAudioFile, recordedAudioWav } from '@/lib/crm-audio';
 import { localDateTime, scheduledSendAt } from '@/lib/inbox-schedule';
@@ -22,8 +22,11 @@ type Contact = {
     opted_out: boolean;
     last_inbound_at: string | null;
     unread?: boolean;
+    ig_name?: string | null;
+    profile_pic_url?: string | null;
     tags: Tag[];
 };
+type SavedItem = { kind: 'audio' | 'image'; url: string; label: string };
 type Attachment = { type: string; url?: string; payload?: { url?: string } };
 type Message = {
     id: string;
@@ -42,12 +45,27 @@ type InboxData = { leads: Contact[]; total: number; hasMore: boolean; unreadCoun
 type InFlight = { key: string; request: number; promise: Promise<void> };
 const qualification: Record<string, string> = { new: 'Nuevo', qualified: 'Calificado', customer: 'Cliente', unqualified: 'No calificado' };
 const statuses: Record<string, string> = { queued: 'En cola', sending: 'Enviando', sent: 'Enviado', failed: 'Falló', blocked: 'Bloqueado', skipped: 'Omitido', uncertain: 'Revisar en Instagram' };
-const label = (contact: Contact) => contact.display_name || (contact.username ? `@${contact.username}` : `Contacto ${contact.instagram_user_id || contact.id.slice(0, 8)}`);
+const label = (contact: Contact) => contact.display_name || contact.ig_name || (contact.username ? `@${contact.username}` : `Contacto ${contact.instagram_user_id || contact.id.slice(0, 8)}`);
+/** Hora si es de hoy; si no, día y mes. Para la lista de chats. */
+const shortDate = (value: string) => {
+    const d = new Date(value);
+    return d.toDateString() === new Date().toDateString()
+        ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+        : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+};
 const date = (value: string) => new Date(value).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const safeUrl = (value: string | null | undefined) => {
     if (!value) return null;
     try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null; } catch { return null; }
 };
+/** Foto de perfil de Instagram; si no hay o se venció el enlace, la inicial. */
+function Avatar({ contact, large = false }: { contact: Contact; large?: boolean }) {
+    const [broken, setBroken] = useState('');
+    const url = safeUrl(contact.profile_pic_url);
+    const cls = `${styles.avatar} ${large ? styles.avatarLarge : ''}`;
+    if (url && broken !== url) return <img className={cls} src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(url)} />;
+    return <span className={cls} aria-hidden>{label(contact).replace('@', '').slice(0, 1).toUpperCase()}</span>;
+}
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch(`/api/automations${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json().catch(() => ({}));
@@ -74,6 +92,8 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
     const [error, setError] = useState('');
     const [missing, setMissing] = useState(false);
     const [refreshVersion, setRefreshVersion] = useState(0);
+    const [showFilters, setShowFilters] = useState(false);
+    const [showPush, setShowPush] = useState(false);
     const queryRef = useRef(0);
     const inFlightRef = useRef<InFlight | null>(null);
     const refresh = useCallback((showLoading = false, force = false) => {
@@ -120,37 +140,52 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
         window.addEventListener('focus', visible);
         return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh]);
+    const filtersActive = Boolean(tag || quality || starred);
     return <section className={styles.inbox} aria-label="Bandeja de conversaciones">
-        <PushToggle tags={tags} />
-        <div className={styles.toolbar}>
-            <label className={styles.search}><Search size={17} /><span className={styles.srOnly}>Buscar contactos</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Buscar nombre, usuario o notas" maxLength={100} /></label>
-            <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-            <select aria-label="Filtrar por calificación" value={quality} onChange={(event) => { setQuality(event.target.value); setPage(0); }}><option value="">Todas las calificaciones</option>{Object.entries(qualification).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select>
-            <button className={starred ? styles.selectedFilter : styles.button} type="button" aria-pressed={starred} onClick={() => { setStarred(!starred); setPage(0); }}><Star size={16} fill={starred ? 'currentColor' : 'none'} />Destacados</button>
-            <button className={styles.iconButton} type="button" onClick={() => { void refresh(true, true); setRefreshVersion((version) => version + 1); }} aria-label="Actualizar conversaciones"><RefreshCw size={17} /></button>
-        </div>
         {missing ? <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh(true)} /> : error && <p className={styles.error} role="alert">{error}</p>}
+        {showPush && <PushToggle tags={tags} />}
         <div className={`${styles.layout} ${selectedId ? styles.hasConversation : ''}`}>
             <aside className={styles.contacts} aria-label="Contactos">
-                <div className={styles.listHeader}>
-                    <div className={styles.segmented} role="group" aria-label="Qué conversaciones ver">
-                        <button type="button" aria-pressed={!unreadOnly} className={!unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(false); setPage(0); }}>Todas</button>
-                        <button type="button" aria-pressed={unreadOnly} className={unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(true); setPage(0); }} disabled={unreadCount === null} title={unreadCount === null ? 'Falta correr supabase_migration_crm_inbox_v2.sql' : undefined}>
-                            Sin responder{unreadCount ? <span className={styles.count}>{unreadCount}</span> : null}
-                        </button>
+                <div className={styles.listHead}>
+                    <div className={styles.listHeadRow}>
+                        <div className={styles.segmented} role="group" aria-label="Qué conversaciones ver">
+                            <button type="button" aria-pressed={!unreadOnly} className={!unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(false); setPage(0); }}>Todas</button>
+                            <button type="button" aria-pressed={unreadOnly} className={unreadOnly ? styles.segmentOn : ''} onClick={() => { setUnreadOnly(true); setPage(0); }} disabled={unreadCount === null} title={unreadCount === null ? 'Falta correr supabase_migration_crm_inbox_v2.sql' : undefined}>
+                                Sin responder{unreadCount ? <span className={styles.count}>{unreadCount}</span> : null}
+                            </button>
+                        </div>
+                        <div className={styles.headActions}>
+                            <button type="button" className={`${styles.iconButton} ${showFilters || filtersActive ? styles.iconOn : ''}`} aria-pressed={showFilters} onClick={() => setShowFilters(!showFilters)} aria-label="Filtros" title="Filtros"><SlidersHorizontal size={16} /></button>
+                            <button type="button" className={`${styles.iconButton} ${showPush ? styles.iconOn : ''}`} aria-pressed={showPush} onClick={() => setShowPush(!showPush)} aria-label="Notificaciones" title="Notificaciones en este dispositivo"><Bell size={16} /></button>
+                            <button type="button" className={styles.iconButton} onClick={() => { void refresh(true, true); setRefreshVersion((version) => version + 1); }} aria-label="Actualizar conversaciones" title="Actualizar"><RefreshCw size={16} /></button>
+                        </div>
                     </div>
-                    <span>{total} {total === 1 ? 'contacto' : 'contactos'}</span>
+                    <label className={styles.search}><Search size={15} /><span className={styles.srOnly}>Buscar contactos</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Buscar nombre, usuario o notas" maxLength={100} /></label>
+                    {showFilters && <div className={styles.filtersPanel}>
+                        <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                        <select aria-label="Filtrar por calificación" value={quality} onChange={(event) => { setQuality(event.target.value); setPage(0); }}><option value="">Todas las calificaciones</option>{Object.entries(qualification).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select>
+                        <button className={starred ? styles.selectedFilter : styles.button} type="button" aria-pressed={starred} onClick={() => { setStarred(!starred); setPage(0); }}><Star size={14} fill={starred ? 'currentColor' : 'none'} />Destacados</button>
+                        {filtersActive && <button type="button" className={styles.linkButton} onClick={() => { setTag(''); setQuality(''); setStarred(false); setPage(0); }}>Limpiar</button>}
+                    </div>}
+                    {unreadOnly && Boolean(unreadCount) && <button type="button" className={styles.markAll} disabled={markingAll} onClick={() => void markAllRead()}><CheckCheck size={14} />{markingAll ? 'Marcando…' : 'Marcar todas como leídas'}</button>}
                 </div>
-                {unreadOnly && Boolean(unreadCount) && <button type="button" className={styles.markAll} disabled={markingAll} onClick={() => void markAllRead()}><CheckCheck size={14} />{markingAll ? 'Marcando…' : 'Marcar todas como leídas'}</button>}
-                {loading && <p className={styles.empty} role="status">Cargando contactos…</p>}
-                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{unreadOnly && !search && !tag && !quality && !starred ? 'No hay conversaciones esperando respuesta.' : search || tag || quality || starred || unreadOnly ? 'No hay contactos con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando recibas mensajes o comentarios.'}</p></div>}
+                {loading && !contacts.length && <p className={styles.empty} role="status">Cargando contactos…</p>}
+                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{unreadOnly && !search && !filtersActive ? 'No hay conversaciones esperando respuesta.' : search || filtersActive || unreadOnly ? 'No hay contactos con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando recibas mensajes o comentarios.'}</p></div>}
                 <div className={styles.contactList}>{contacts.map((contact) => <button key={contact.id} type="button" className={`${styles.contact} ${selectedId === contact.id ? styles.activeContact : ''} ${contact.unread ? styles.unreadContact : ''}`} aria-pressed={selectedId === contact.id} onClick={() => setSelectedId(contact.id)}>
-                    <span className={styles.avatar}>{label(contact).replace('@', '').slice(0, 1).toUpperCase()}</span>
-                    <span className={styles.contactCopy}><span className={styles.contactName}>{label(contact)}{contact.starred && <Star size={13} fill="currentColor" />}{contact.unread && <span className={styles.unreadDot} aria-label="Sin responder" />}</span><span className={styles.muted}>{qualification[contact.qualification] || contact.qualification}</span><span className={styles.tagRow}>{contact.tags.map((item) => <span className={styles.smallTag} key={item.id}>{item.name}</span>)}</span><span className={styles.timestamp}>{contact.last_inbound_at ? date(contact.last_inbound_at) : 'Sin mensaje entrante todavía'}</span></span>
+                    <Avatar contact={contact} />
+                    <span className={styles.contactCopy}>
+                        <span className={styles.contactTop}><span className={styles.contactName}>{label(contact)}</span>{contact.starred && <Star size={12} fill="currentColor" className={styles.starIcon} />}{contact.last_inbound_at && <time className={styles.timestamp}>{shortDate(contact.last_inbound_at)}</time>}</span>
+                        <span className={styles.contactBottom}>
+                            {(() => { const sub = contact.username && label(contact) !== `@${contact.username}` ? `@${contact.username}` : contact.qualification !== 'new' ? qualification[contact.qualification] : ''; return sub ? <span className={styles.contactSub}>{sub}</span> : null; })()}
+                            {contact.tags.slice(0, 2).map((item) => <span className={styles.smallTag} key={item.id}>{item.name}</span>)}
+                            {contact.tags.length > 2 && <span className={styles.moreTags}>+{contact.tags.length - 2}</span>}
+                            {contact.unread && <span className={styles.unreadDot} aria-label="Sin responder" />}
+                        </span>
+                    </span>
                 </button>)}</div>
-                <div className={styles.pagination}><button type="button" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}>Anterior</button><span>{page + 1}</span><button type="button" disabled={!hasMore || loading} onClick={() => setPage(page + 1)}>Siguiente</button></div>
+                <div className={styles.pagination}><button type="button" disabled={page === 0 || loading} onClick={() => setPage(page - 1)}>Anterior</button><span>{total} {total === 1 ? 'contacto' : 'contactos'} · pág. {page + 1}</span><button type="button" disabled={!hasMore || loading} onClick={() => setPage(page + 1)}>Siguiente</button></div>
             </aside>
-            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} refreshVersion={refreshVersion} onBack={() => setSelectedId(null)} onChanged={() => void refresh(false, true)} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés enviar texto, audio e imágenes cuando esté abierta la ventana de respuesta de Instagram.</span></div>}
+            {selectedId ? <Conversation key={selectedId} id={selectedId} tags={tags} refreshVersion={refreshVersion} onBack={() => setSelectedId(null)} onChanged={() => void refresh(false, true)} onTagsChange={onTagsChange} /> : <div className={styles.welcome}><MessageSquare size={34} /><h3>Tu bandeja de conversaciones</h3><p>Elegí un contacto para responder, agregar notas y organizar sus etiquetas.</p><span>Podés mandar texto, audio, imágenes y tus guardados mientras esté abierta la ventana de respuesta de Instagram.</span></div>}
         </div>
     </section>;
 }
@@ -173,6 +208,9 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     const [imagePreview, setImagePreview] = useState('');
     const [preparingImage, setPreparingImage] = useState(false);
     const [marking, setMarking] = useState(false);
+    const [savedOpen, setSavedOpen] = useState(false);
+    const [saved, setSaved] = useState<SavedItem[] | null>(null);
+    const [syncing, setSyncing] = useState(false);
     const [text, setText] = useState('');
     const [audioUrl, setAudioUrl] = useState('');
     const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -232,6 +270,12 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
         window.addEventListener('focus', visible);
         return () => { clearTimeout(first); clearInterval(timer); aliveRef.current = false; sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh, refreshVersion]);
+    // Al abrir el chat: completar con Instagram lo que falte (no más de una vez cada 2 min por contacto).
+    useEffect(() => {
+        let alive = true;
+        api<{ added: number }>(`/inbox/${id}/sync`, 'POST', {}).then((r) => { if (alive && r.added) void refresh(true); }).catch(() => {});
+        return () => { alive = false; };
+    }, [id, refresh]);
     useEffect(() => {
         const node = messagesRef.current;
         if (node) node.scrollTop = node.scrollHeight;
@@ -299,6 +343,37 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
     function clearImage() {
         if (imagePreviewRef.current) URL.revokeObjectURL(imagePreviewRef.current);
         imagePreviewRef.current = ''; setImageFile(null); setImagePreview('');
+    }
+    /** Trae de Instagram lo que falte (mensajes mandados desde la app antes de que BAKO los guardara). */
+    async function syncNow() {
+        setSyncing(true); setError(''); setNotice('');
+        try {
+            const r = await api<{ added: number; skipped?: string }>(`/inbox/${id}/sync`, 'POST', { force: true });
+            if (r.added) { await refresh(true); onChanged(); }
+            setNotice(r.added ? `Se agregaron ${r.added} mensaje${r.added === 1 ? '' : 's'} desde Instagram.` : r.skipped && r.skipped !== 'reciente' ? `No se pudo sincronizar: ${r.skipped}.` : 'La conversación ya está al día con Instagram.');
+        } catch (e) { report(e); } finally { setSyncing(false); }
+    }
+    async function toggleSaved() {
+        const open = !savedOpen;
+        setSavedOpen(open);
+        if (open && !saved) {
+            try { setSaved((await api<{ items: SavedItem[] }>('/inbox/library')).items); }
+            catch (e) { report(e); setSaved([]); }
+        }
+    }
+    async function sendSaved(item: SavedItem) {
+        if (busy) return;
+        setBusy(true); setError(''); setNotice('');
+        try {
+            if (delivery === 'scheduled' && !Number.isFinite(Date.parse(scheduledAt))) throw new Error('Elegí una fecha y hora válidas para programar el mensaje.');
+            const scheduled = delivery === 'scheduled' ? new Date(scheduledAt).toISOString() : null;
+            if (scheduled) scheduledSendAt(scheduled);
+            const payload = item.kind === 'audio' ? { kind: 'audio', audio_url: item.url } : { kind: 'image', image_url: item.url };
+            await api(`/inbox/${id}/messages`, 'POST', { ...payload, ...(scheduled ? { scheduled_at: scheduled } : {}), client_id: crypto.randomUUID() });
+            setSavedOpen(false); setDelivery('now'); setScheduledAt('');
+            setNotice(scheduled ? `Programado para ${date(scheduled)}.` : `${item.kind === 'audio' ? 'Audio' : 'Imagen'} en cola. El estado se actualiza cuando sale.`);
+            await refresh(true); onChanged();
+        } catch (e) { report(e); } finally { setBusy(false); }
     }
     async function toggleRead() {
         if (!data) return;
@@ -397,7 +472,7 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
         } catch (error) { report(error); } finally { setBusy(false); }
     }
     return <div className={styles.conversation}>
-        <div className={styles.conversationHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Volver a contactos"><ArrowLeft size={18} /></button><div><h3>{data ? label(data.lead) : 'Conversación'}</h3><span className={styles.muted}>{data?.lead.username && data.lead.display_name ? `@${data.lead.username} · ` : ''}Instagram</span></div>{data && typeof data.lead.unread === 'boolean' && <button className={`${styles.iconButton} ${data.lead.unread ? styles.starred : ''}`} type="button" disabled={marking} onClick={() => void toggleRead()} aria-label={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'} title={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'}>{data.lead.unread ? <MailOpen size={18} /> : <Mail size={18} />}</button>}{data && <button className={`${styles.iconButton} ${data.lead.starred ? styles.starred : ''}`} type="button" disabled={saving} onClick={() => void patch({ starred: !data.lead.starred })} aria-label={data.lead.starred ? 'Quitar de destacados' : 'Destacar contacto'} aria-pressed={data.lead.starred}><Star size={19} fill={data.lead.starred ? 'currentColor' : 'none'} /></button>}</div>
+        <div className={styles.conversationHeader}><button className={styles.backButton} type="button" onClick={onBack} aria-label="Volver a contactos"><ArrowLeft size={18} /></button>{data && <Avatar contact={data.lead} large />}<div><h3>{data ? label(data.lead) : 'Conversación'}</h3><span className={styles.muted}>{data?.lead.username && label(data.lead) !== `@${data.lead.username}` ? `@${data.lead.username} · ` : ''}Instagram</span></div>{data && <button className={styles.iconButton} type="button" disabled={syncing} onClick={() => void syncNow()} aria-label="Sincronizar con Instagram" title="Traer de Instagram los mensajes que falten"><RefreshCw size={17} className={syncing ? styles.spin : ''} /></button>}{data && typeof data.lead.unread === 'boolean' && <button className={`${styles.iconButton} ${data.lead.unread ? styles.starred : ''}`} type="button" disabled={marking} onClick={() => void toggleRead()} aria-label={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'} title={data.lead.unread ? 'Marcar como respondida' : 'Marcar como sin responder'}>{data.lead.unread ? <MailOpen size={18} /> : <Mail size={18} />}</button>}{data && <button className={`${styles.iconButton} ${data.lead.starred ? styles.starred : ''}`} type="button" disabled={saving} onClick={() => void patch({ starred: !data.lead.starred })} aria-label={data.lead.starred ? 'Quitar de destacados' : 'Destacar contacto'} aria-pressed={data.lead.starred}><Star size={19} fill={data.lead.starred ? 'currentColor' : 'none'} /></button>}</div>
         {error && <p className={styles.error} role="alert">{error}</p>}
         {fetchError && <p className={styles.error} role="alert">{fetchError}</p>}
         {missing && <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh()} />}
@@ -432,35 +507,44 @@ function Conversation({ id, tags, refreshVersion, onBack, onChanged, onTagsChang
                 </div>)}
             </div>
             <form className={styles.composer} onSubmit={(event) => void sendMessage(event)}>
-                <p className={styles.windowNote}>{canReply ? `Envío inmediato disponible hasta ${date(new Date(expires).toISOString())}.` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}{!canReply && ' Podés preparar un mensaje sin enviarlo.'}</p>
-                <div className={styles.composerModes}>
-                    <button type="button" className={kind === 'text' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'text'} onClick={() => setKind('text')}>Texto</button>
-                    <button type="button" className={kind === 'audio' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => setKind('audio')}>Audio</button>
-                    <button type="button" className={kind === 'image' ? styles.selectedFilter : styles.button} disabled={audioBusy || recording} aria-pressed={kind === 'image'} onClick={() => setKind('image')}>Imagen</button>
-                </div>
-                {kind === 'image' ? <div className={styles.imageComposer}>
-                    {imagePreview ? <div className={styles.imagePreview}><img src={imagePreview} alt="Imagen a enviar" /><button type="button" className={styles.iconButton} disabled={busy} onClick={clearImage} aria-label="Quitar imagen"><X size={16} /></button></div>
-                        : <label className={`${styles.uploadButton} ${audioBusy ? styles.disabled : ''}`}><ImagePlus size={15} />{preparingImage ? 'Preparando imagen…' : 'Elegir imagen'}<input aria-label="Elegir imagen" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic" disabled={audioBusy} onChange={(event) => { void chooseImage(event.target.files?.[0] || null); event.target.value = ''; }} /></label>}
-                    <span className={styles.muted}>JPG, PNG, GIF o WEBP. Se ajusta sola al tamaño que acepta Instagram. Va sin texto: si querés acompañarla, mandá un mensaje aparte.</span>
-                </div> : kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={3} disabled={busy} onChange={(event) => setText(event.target.value)} /><span className={styles.muted}>{text.length}/1000</span></label> : <div className={styles.audioComposer}>
-                    <div className={styles.row}>
-                        <label className={`${styles.uploadButton} ${audioBusy || recording ? styles.disabled : ''}`}><Paperclip size={15} />Cargar archivo<input aria-label="Cargar archivo de audio" type="file" accept="audio/mpeg,audio/ogg,application/ogg,audio/mp4,audio/aac,audio/wav,.mp3,.ogg,.oga,.opus,.m4a,.wav,.aac" disabled={audioBusy || recording} onChange={(event) => { void chooseAudio(event.target.files?.[0] || null); event.target.value = ''; }} /></label>
-                        <button className={styles.button} type="button" disabled={audioBusy} onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>{recording ? <><Square size={14} />Terminar grabación</> : <><Mic size={15} />{requestingMicrophone ? 'Esperando permiso…' : 'Grabar audio'}</>}</button>
-                        {recording && <span className={styles.recording} role="status">Grabando · máximo 2 minutos</span>}
-                        {requestingMicrophone && <span className={styles.muted} role="status">Habilitá el micrófono en el aviso del navegador.</span>}
-                        {preparingAudio && <span className={styles.muted} role="status">Preparando audio…</span>}
+                <div className={styles.composerTop}>
+                    <div className={styles.modes} role="group" aria-label="Tipo de mensaje">
+                        <button type="button" className={kind === 'text' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'text'} onClick={() => { setKind('text'); setSavedOpen(false); }} title="Texto"><MessageSquare size={15} /><span>Texto</span></button>
+                        <button type="button" className={kind === 'audio' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'audio'} onClick={() => { setKind('audio'); setSavedOpen(false); }} title="Audio"><Mic size={15} /><span>Audio</span></button>
+                        <button type="button" className={kind === 'image' && !savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={kind === 'image'} onClick={() => { setKind('image'); setSavedOpen(false); }} title="Imagen"><ImagePlus size={15} /><span>Imagen</span></button>
+                        <button type="button" className={savedOpen ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={savedOpen} onClick={() => void toggleSaved()} title="Audios e imágenes de tus seguimientos"><Bookmark size={15} /><span>Guardados</span></button>
                     </div>
-                    {preview && <div className={styles.preview}><audio controls preload="metadata" src={preview} /><span className={styles.muted}>{audioFile?.name || 'Audio adjunto'}</span><button type="button" className={styles.iconButton} disabled={audioBusy || recording} onClick={clearAudio} aria-label="Quitar audio adjunto"><X size={16} /></button></div>}
-                    <details className={styles.audioLink}><summary>Usar un enlace de audio</summary><label>URL pública del audio<input type="url" value={audioUrl} maxLength={2048} disabled={audioBusy || recording || Boolean(audioFile)} placeholder="https://…" onChange={(event) => setAudioUrl(event.target.value)} /></label></details>
-                    {!preview && safeUrl(audioUrl) && <audio controls preload="none" src={safeUrl(audioUrl)!} />}
-                    <span className={styles.muted}>MP3, OGG, M4A, WAV o AAC, hasta 4 MB. MP3, OGG y grabaciones se preparan como WAV de hasta 2 minutos. Escuchalo antes de enviarlo.</span>
-                </div>}
-                <div className={styles.deliveryControls}>
-                    <label>Cuándo enviar<select aria-label="Cuándo enviar el mensaje" value={delivery} disabled={audioBusy || recording} onChange={(event) => { const value = event.target.value as 'now' | 'scheduled'; setDelivery(value); if (value === 'scheduled' && !scheduledAt) setScheduledAt(localDateTime(Date.now() + 60 * 60_000)); }}><option value="now">Ahora</option><option value="scheduled">Elegir fecha y hora</option></select></label>
-                    {delivery === 'scheduled' && <label>Fecha y hora local<input type="datetime-local" aria-label="Fecha y hora del mensaje" value={scheduledAt} required disabled={audioBusy || recording} onChange={(event) => setScheduledAt(event.target.value)} /></label>}
+                    <button type="button" className={delivery === 'scheduled' ? styles.modeOn : styles.mode} disabled={audioBusy || recording} aria-pressed={delivery === 'scheduled'} onClick={() => { if (delivery === 'scheduled') { setDelivery('now'); } else { setDelivery('scheduled'); if (!scheduledAt) setScheduledAt(localDateTime(Date.now() + 60 * 60_000)); } }} title="Programar el envío"><CalendarClock size={15} /><span>Programar</span></button>
                 </div>
-                {delivery === 'scheduled' && <p className={styles.windowNote}>Se verificará la ventana de 24 horas de Instagram al enviarlo. Si está cerrada o el contacto desactiva los mensajes, quedará bloqueado y se mostrará el motivo.</p>}
-                <div className={styles.sendRow}><span className={styles.muted}>{delivery === 'scheduled' ? 'Podés cancelar un envío mientras esté pendiente.' : 'El estado del envío aparece en el historial.'}</span><button type="submit" className={styles.sendButton} disabled={(delivery === 'now' ? !canReply : !canSchedule || !scheduledAt) || audioBusy || recording || (kind === 'text' ? !text.trim() : kind === 'image' ? !imageFile : !audioFile && !audioUrl.trim())}>{delivery === 'scheduled' ? <CalendarClock size={16} /> : <Send size={16} />}{busy ? 'Guardando…' : delivery === 'scheduled' ? 'Programar mensaje' : 'Enviar'}</button></div>
+                {delivery === 'scheduled' && <div className={styles.scheduleRow}><input type="datetime-local" aria-label="Fecha y hora del mensaje" value={scheduledAt} required disabled={audioBusy || recording} onChange={(event) => setScheduledAt(event.target.value)} /><span className={styles.muted}>Al enviarlo se verifica la ventana de 24 h de Instagram. Podés cancelarlo mientras esté pendiente.</span></div>}
+                {savedOpen ? <div className={styles.saved}>
+                    {!saved && <p className={styles.muted} role="status">Cargando guardados…</p>}
+                    {saved && !saved.length && <p className={styles.muted}>Todavía no hay audios ni imágenes guardados. Se toman de los pasos de tus seguimientos y de las respuestas a historias.</p>}
+                    {saved?.map((item) => <div key={item.url} className={styles.savedItem}>
+                        {item.kind === 'image' ? <img src={item.url} alt="" loading="lazy" /> : <audio controls preload="none" src={item.url} />}
+                        <span className={styles.savedLabel}>{item.label}</span>
+                        <button type="button" className={styles.sendButton} disabled={busy || (delivery === 'now' ? !canReply : !canSchedule || !scheduledAt)} onClick={() => void sendSaved(item)}>{delivery === 'scheduled' ? <CalendarClock size={14} /> : <Send size={14} />}{delivery === 'scheduled' ? 'Programar' : 'Enviar'}</button>
+                    </div>)}
+                </div> : <div className={styles.inputRow}>
+                    <div className={styles.inputArea}>{kind === 'image' ? <div className={styles.imageComposer}>
+                        {imagePreview ? <div className={styles.imagePreview}><img src={imagePreview} alt="Imagen a enviar" /><button type="button" className={styles.iconButton} disabled={busy} onClick={clearImage} aria-label="Quitar imagen"><X size={16} /></button></div>
+                            : <label className={`${styles.uploadButton} ${audioBusy ? styles.disabled : ''}`}><ImagePlus size={15} />{preparingImage ? 'Preparando imagen…' : 'Elegir imagen'}<input aria-label="Elegir imagen" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic" disabled={audioBusy} onChange={(event) => { void chooseImage(event.target.files?.[0] || null); event.target.value = ''; }} /></label>}
+                        <span className={styles.muted}>Va sin texto. Se ajusta sola al tamaño que acepta Instagram.</span>
+                    </div> : kind === 'text' ? <label className={styles.messageInput}><span className={styles.srOnly}>Escribí tu respuesta</span><textarea value={text} maxLength={1000} placeholder="Escribí tu respuesta…" rows={2} disabled={busy} onChange={(event) => setText(event.target.value)} />{text.length > 800 && <span className={styles.muted}>{text.length}/1000</span>}</label> : <div className={styles.audioComposer}>
+                        <div className={styles.row}>
+                            <label className={`${styles.uploadButton} ${audioBusy || recording ? styles.disabled : ''}`}><Paperclip size={15} />Cargar archivo<input aria-label="Cargar archivo de audio" type="file" accept="audio/mpeg,audio/ogg,application/ogg,audio/mp4,audio/aac,audio/wav,.mp3,.ogg,.oga,.opus,.m4a,.wav,.aac" disabled={audioBusy || recording} onChange={(event) => { void chooseAudio(event.target.files?.[0] || null); event.target.value = ''; }} /></label>
+                            <button className={styles.button} type="button" disabled={audioBusy} onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>{recording ? <><Square size={14} />Terminar</> : <><Mic size={15} />{requestingMicrophone ? 'Esperando permiso…' : 'Grabar'}</>}</button>
+                            {recording && <span className={styles.recording} role="status">Grabando · máx. 2 min</span>}
+                            {requestingMicrophone && <span className={styles.muted} role="status">Habilitá el micrófono en el aviso del navegador.</span>}
+                            {preparingAudio && <span className={styles.muted} role="status">Preparando audio…</span>}
+                        </div>
+                        {preview && <div className={styles.preview}><audio controls preload="metadata" src={preview} /><button type="button" className={styles.iconButton} disabled={audioBusy || recording} onClick={clearAudio} aria-label="Quitar audio adjunto"><X size={16} /></button></div>}
+                        <details className={styles.audioLink}><summary>Usar un enlace de audio</summary><label>URL pública del audio<input type="url" value={audioUrl} maxLength={2048} disabled={audioBusy || recording || Boolean(audioFile)} placeholder="https://…" onChange={(event) => setAudioUrl(event.target.value)} /></label></details>
+                        {!preview && safeUrl(audioUrl) && <audio controls preload="none" src={safeUrl(audioUrl)!} />}
+                    </div>}</div>
+                    <button type="submit" className={styles.sendButton} aria-label={delivery === 'scheduled' ? 'Programar mensaje' : 'Enviar'} disabled={(delivery === 'now' ? !canReply : !canSchedule || !scheduledAt) || audioBusy || recording || (kind === 'text' ? !text.trim() : kind === 'image' ? !imageFile : !audioFile && !audioUrl.trim())}>{delivery === 'scheduled' ? <CalendarClock size={16} /> : <Send size={16} />}<span>{busy ? 'Enviando…' : delivery === 'scheduled' ? 'Programar' : 'Enviar'}</span></button>
+                </div>}
+                <p className={styles.windowNote}>{canReply ? `Podés responder hasta ${date(new Date(expires).toISOString())}` : data.replyBlockedReason || 'La ventana de respuesta cerró. Esperá un nuevo mensaje del contacto.'}</p>
             </form>
         </>}
     </div>;

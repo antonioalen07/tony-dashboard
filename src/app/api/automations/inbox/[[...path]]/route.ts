@@ -4,6 +4,8 @@ import { leadSearchFilter } from '@/lib/automation-data';
 import { scheduledSendAt } from '@/lib/inbox-schedule';
 import { publicStudioUrl, uploadStudioObject } from '@/lib/storage';
 import { supabase as db } from '@/utils/supabase';
+import { after } from 'next/server';
+import { refreshProfiles, syncHistory, type ProfileLead } from '@/lib/crm-sync';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -131,9 +133,32 @@ async function handle(request: Request, context: Context) {
             }
             const rows = await query;
             const leads = (result(rows) as unknown as RawLead[]).map(leadWithTags);
+            // Fotos y nombres de Instagram: se completan en segundo plano y aparecen en el próximo refresco.
+            after(() => refreshProfiles(leads as unknown as ProfileLead[]).catch(() => {}));
             return Response.json({ leads, total: rows.count || 0, hasMore: offset + leads.length < (rows.count || 0), unreadCount: await unreadCount() });
         }
         if (id === 'unread-count' && path.length === 1 && request.method === 'GET') return Response.json({ count: await unreadCount() });
+        // Audios e imágenes ya cargados en seguimientos y respuestas a historias, para mandarlos desde el chat.
+        if (id === 'library' && path.length === 1 && request.method === 'GET') {
+            const [sequences, stories] = await Promise.all([
+                db.from('followup_sequences').select('name,steps').order('updated_at', { ascending: false }),
+                db.from('story_automations').select('name,dm_audio_url').not('dm_audio_url', 'is', null),
+            ]);
+            const items: { kind: 'audio' | 'image'; url: string; label: string }[] = [];
+            const seen = new Set<string>();
+            const push = (kind: 'audio' | 'image', url: unknown, label: string) => {
+                if (typeof url !== 'string' || !url.startsWith('https://') || seen.has(url)) return;
+                seen.add(url); items.push({ kind, url, label });
+            };
+            for (const seq of (sequences.data || []) as { name: string; steps: { kind: string; audio_url?: string; image_url?: string }[] }[]) {
+                (Array.isArray(seq.steps) ? seq.steps : []).forEach((step, i) => {
+                    if (step.kind === 'audio') push('audio', step.audio_url, `${seq.name} · paso ${i + 1}`);
+                    if (step.kind === 'image') push('image', step.image_url, `${seq.name} · paso ${i + 1}`);
+                });
+            }
+            for (const story of (stories.data || []) as { name: string; dm_audio_url: string }[]) push('audio', story.dm_audio_url, `Historias · ${story.name}`);
+            return Response.json({ items });
+        }
         if (id === 'read-all' && path.length === 1 && request.method === 'POST') {
             const marked = result(await db.from('leads').update({ unread: false, read_at: new Date().toISOString() })
                 .eq('ig_account_id', ACCOUNT()).eq('unread', true).select('id'));
@@ -207,6 +232,7 @@ async function handle(request: Request, context: Context) {
             messages.push(...stories.map((row) => ({ id: `story:${row.id}`, direction: 'outbound' as const, kind: row.story_automations?.dm_audio_url ? 'audio' as const : 'text' as const, text: row.story_automations?.dm_text || null, audio_url: row.story_automations?.dm_audio_url || null, attachments: [], status: row.status, error: row.error, created_at: row.sent_at || row.created_at })));
             messages.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
             const blocked = replyBlock(lead);
+            after(() => refreshProfiles([lead as unknown as ProfileLead], 1).catch(() => {}));
             return Response.json({ lead, messages, canReply: !blocked, replyBlockedReason: blocked, truncated: [received, outbox, events, followups, stories].some((rows) => rows.length === limit) });
         }
         if (id && action === 'messages' && path.length === 2 && request.method === 'POST') {
@@ -239,6 +265,11 @@ async function handle(request: Request, context: Context) {
                 if (previous && previous.kind === row.kind && previous.text === row.text && previous.audio_url === row.audio_url && (previous.image_url ?? null) === picture) return Response.json(previous, { status: 202 });
             }
             return Response.json(result(inserted), { status: 202 });
+        }
+        if (id && action === 'sync' && path.length === 2 && request.method === 'POST') {
+            const body = await request.json().catch(() => ({})) as { force?: unknown };
+            try { return Response.json(await syncHistory(uuid(id), body.force === true)); }
+            catch (e) { return Response.json({ added: 0, skipped: (e as Error).message }); }
         }
         if (id && action === 'read' && path.length === 2 && request.method === 'POST') {
             const body = object(await request.json());

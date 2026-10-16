@@ -238,6 +238,16 @@ La prueba de DM se difirió por pedido explícito del usuario; ejecutar después
 - **Filtro por etiqueta** (`supabase_migration_push_tags.sql`): `push_subscriptions.tag_ids`
   por dispositivo; vacío = todos los chats. El título del aviso lleva las etiquetas del contacto.
 
+### Bandeja v3 (`supabase_migration_crm_inbox_v3.sql`) — `src/lib/crm-sync.ts`
+- **Perfil**: nombre, usuario y foto de Instagram (`leads.ig_name`, `profile_pic_url`) vía la API
+  de perfil de mensajería; se piden en segundo plano (`after()`) al listar, y se renuevan cada 3 días
+  porque la URL de la foto vence a los ~5.
+- **Historial**: al abrir un chat, `POST /inbox/:id/sync` trae los últimos 100 mensajes de la API de
+  conversaciones e importa los que falten (`crm_import_history`): mismos ids que el webhook, no
+  duplica ni dispara push. Máx. una vez cada 2 min por contacto salvo el botón de sincronizar.
+- **Guardados**: `GET /inbox/library` junta los audios/imágenes de los pasos de seguimiento y de las
+  respuestas a historias para mandarlos desde el chat.
+
 ## Al hacer cambios de UI
 
 El contenido más ancho que el área útil debe poder alcanzarse (scroll), nunca

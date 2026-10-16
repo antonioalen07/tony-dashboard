@@ -54,6 +54,8 @@ function fixture(fields = {}) {
             if (name === '@/lib/automation-data') return { leadSearchFilter: () => '' };
             if (name === '@/lib/storage') return { uploadStudioObject: () => { throw new Error('No usar Storage real en esta prueba'); } };
             if (name === '@/utils/supabase') return { supabase: db };
+            if (name === '@/lib/crm-sync') return { refreshProfiles: async () => {}, syncHistory: async () => ({ added: 0 }) };
+            if (name === 'next/server') return { after: () => {} };
             return require(name);
         },
     });

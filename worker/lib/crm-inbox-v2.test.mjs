@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
-const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql', 'supabase_migration_push_tags.sql'];
+const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql', 'supabase_migration_push_tags.sql', 'supabase_migration_crm_inbox_v3.sql'];
 const sql = await Promise.all(files.map((f) => readFile(new URL(`../../${f}`, import.meta.url), 'utf8')));
 
 async function database() {
@@ -88,5 +88,27 @@ test('Push: borrar una etiqueta la saca del filtro de cada dispositivo', async (
         await db.query('DELETE FROM lead_tags WHERE id=$1', [a.id]);
         const { rows: [s] } = await db.query('SELECT tag_ids FROM push_subscriptions');
         assert.deepEqual(s.tag_ids, [b.id]);
+    } finally { await db.close(); }
+});
+
+test('Historial: importa lo que falta en orden, sin duplicar ni avisar, y respeta lo ya respondido', async () => {
+    const db = await database();
+    try {
+        await receive(db, 'webhook-1', "now()-interval '3 hours'");
+        const l = await lead(db);
+        const msgs = [
+            { mid: 'webhook-1', at: new Date(Date.now() - 3 * 3600e3).toISOString(), text: 'Hola', direction: 'inbound', attachments: [] },
+            { mid: 'phone-1', at: new Date(Date.now() - 2 * 3600e3).toISOString(), text: 'Respondí desde el teléfono', direction: 'outbound', attachments: [] },
+            { mid: 'img-1', at: new Date(Date.now() - 1 * 3600e3).toISOString(), text: '', direction: 'outbound', attachments: [{ type: 'image', payload: { url: 'https://example.com/a.jpg' } }] },
+        ];
+        const { rows: [r] } = await db.query('SELECT crm_import_history($1,$2::jsonb) n', [l.id, JSON.stringify(msgs)]);
+        assert.equal(r.n, 2);
+        const after = await lead(db);
+        assert.equal(after.unread, false, 'la respuesta importada cierra la conversación');
+        assert.ok(after.history_synced_at);
+        const { rows } = await db.query("SELECT meta_message_id, notified_at IS NOT NULL notified FROM lead_messages WHERE meta_message_id IN ('phone-1','img-1')");
+        assert.ok(rows.every((x) => x.notified), 'lo importado no dispara avisos push');
+        const { rows: [again] } = await db.query('SELECT crm_import_history($1,$2::jsonb) n', [l.id, JSON.stringify(msgs)]);
+        assert.equal(again.n, 0);
     } finally { await db.close(); }
 });
