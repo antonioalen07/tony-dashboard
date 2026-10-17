@@ -132,6 +132,11 @@
 .inbox .filtersPanel select { flex:1 1 130px; font-size:.78rem; padding:7px 8px; }
 .inbox .filtersPanel button { font-size:.76rem; padding:7px 10px; }
 .inbox .linkButton { border:0; background:transparent; text-decoration:underline; color:var(--text-secondary); }
+.rangeRow { flex-basis:100%; display:flex; gap:4px; }
+.inbox .rangeRow button { flex:1; padding:6px 4px; font-size:.75rem; border-radius:999px; }
+.filtersPanel .checkbox { flex-basis:100%; display:flex; align-items:center; gap:7px; font-size:.75rem; color:var(--text-secondary); }
+.inbox .clearFilters { align-self:flex-start; display:inline-flex; align-items:center; gap:5px; padding:4px 10px; font-size:.74rem; border-radius:999px; background:transparent; color:var(--text-secondary); }
+.inbox .clearFilters:hover { color:var(--text-primary); background:var(--hover-bg); }
 /* ── Compositor ── */
 .composerTop { display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; }
 .modes { display:flex; flex-wrap:wrap; gap:4px; }

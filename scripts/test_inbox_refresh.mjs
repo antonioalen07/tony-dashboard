@@ -34,7 +34,7 @@ function fixture(scope) {
   const requests = [];
   const state = {};
   const ctx = {
-    search: '', page: 0, tag: '', quality: '', starred: false, unreadOnly: false, id: 'lead', limit: 100,
+    search: '', page: 0, tag: '', quality: '', starred: false, unreadOnly: false, range: 'all', includeEmpty: false, rangeStart: () => null, id: 'lead', limit: 100,
     unreadCallback: { current: undefined },
     queryRef: { current: 0 }, requestRef: { current: 0 }, inFlightRef: { current: null },
     aliveRef: { current: true }, loadedRef: { current: false },

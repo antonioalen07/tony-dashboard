@@ -21,12 +21,23 @@ type Contact = {
     qualification: string;
     opted_out: boolean;
     last_inbound_at: string | null;
+    last_activity_at?: string | null;
     unread?: boolean;
     ig_name?: string | null;
     profile_pic_url?: string | null;
     tags: Tag[];
 };
 type SavedItem = { kind: 'audio' | 'image'; url: string; label: string };
+type Range = 'all' | 'today' | '7d' | '30d';
+const RANGES: [Range, string][] = [['all', 'Todo'], ['today', 'Hoy'], ['7d', '7 días'], ['30d', '30 días']];
+/** Inicio del período, redondeado al día para que la consulta no cambie en cada refresco. */
+function rangeStart(range: Range): string | null {
+    if (range === 'all') return null;
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    if (range === '7d') d.setDate(d.getDate() - 6);
+    if (range === '30d') d.setDate(d.getDate() - 29);
+    return d.toISOString();
+}
 type Attachment = { type: string; url?: string; payload?: { url?: string } };
 type Message = {
     id: string;
@@ -67,7 +78,8 @@ function Avatar({ contact, large = false }: { contact: Contact; large?: boolean 
     return <span className={cls} aria-hidden>{label(contact).replace('@', '').slice(0, 1).toUpperCase()}</span>;
 }
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-    const response = await fetch(`/api/automations${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
+    // Tope de 20 s: una consulta colgada (señal mala en el teléfono) no puede trabar el refresco automático.
+    const response = await fetch(`/api/automations${path}`, { method, cache: 'no-store', signal: AbortSignal.timeout(20_000), headers: body ? { 'Content-Type': 'application/json' } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(data.error || 'No se pudo completar la operación.'), { migrationNeeded: response.status === 428 });
     return data as T;
@@ -93,11 +105,13 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
     const [missing, setMissing] = useState(false);
     const [refreshVersion, setRefreshVersion] = useState(0);
     const [showFilters, setShowFilters] = useState(false);
+    const [range, setRange] = useState<Range>('all');
+    const [includeEmpty, setIncludeEmpty] = useState(false);
     const [showPush, setShowPush] = useState(false);
     const queryRef = useRef(0);
     const inFlightRef = useRef<InFlight | null>(null);
     const refresh = useCallback((showLoading = false, force = false) => {
-        const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}), ...(unreadOnly ? { unread: 'true' } : {}) });
+        const query = new URLSearchParams({ search, limit: '50', offset: String(page * 50), ...(tag ? { tag } : {}), ...(quality ? { qualification: quality } : {}), ...(starred ? { starred: 'true' } : {}), ...(unreadOnly ? { unread: 'true' } : {}), ...(rangeStart(range) ? { since: rangeStart(range)! } : {}), ...(includeEmpty ? { all: 'true' } : {}) });
         const key = query.toString();
         const pending = inFlightRef.current;
         if (!force && pending?.key === key && pending.request === queryRef.current) {
@@ -124,7 +138,7 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
         })();
         inFlightRef.current = { key, request, promise };
         return promise;
-    }, [search, page, tag, quality, starred, unreadOnly]);
+    }, [search, page, tag, quality, starred, unreadOnly, range, includeEmpty]);
     async function markAllRead() {
         setMarkingAll(true);
         try { await api('/inbox/read-all', 'POST'); await refresh(false, true); }
@@ -140,7 +154,9 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
         window.addEventListener('focus', visible);
         return () => { clearTimeout(debounce); clearInterval(timer); sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
     }, [refresh]);
-    const filtersActive = Boolean(tag || quality || starred);
+    const filtersActive = Boolean(tag || quality || starred || range !== 'all' || includeEmpty);
+    const anyActive = filtersActive || Boolean(search) || unreadOnly;
+    const clearAll = () => { setTag(''); setQuality(''); setStarred(false); setRange('all'); setIncludeEmpty(false); setSearch(''); setUnreadOnly(false); setPage(0); };
     return <section className={styles.inbox} aria-label="Bandeja de conversaciones">
         {missing ? <MigrationBanner file="supabase_migration_automations_crm.sql" onRetry={() => void refresh(true)} /> : error && <p className={styles.error} role="alert">{error}</p>}
         {showPush && <PushToggle tags={tags} />}
@@ -162,19 +178,21 @@ export default function AutomationInbox({ tags, onTagsChange, initialLeadId = nu
                     </div>
                     <label className={styles.search}><Search size={15} /><span className={styles.srOnly}>Buscar contactos</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Buscar nombre, usuario o notas" maxLength={100} /></label>
                     {showFilters && <div className={styles.filtersPanel}>
+                        <div className={styles.rangeRow} role="radiogroup" aria-label="Último mensaje">{RANGES.map(([value, name]) => <button key={value} type="button" role="radio" aria-checked={range === value} className={range === value ? styles.selectedFilter : styles.button} onClick={() => { setRange(value); setPage(0); }}>{name}</button>)}</div>
                         <select aria-label="Filtrar por etiqueta" value={tag} onChange={(event) => { setTag(event.target.value); setPage(0); }}><option value="">Todas las etiquetas</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                         <select aria-label="Filtrar por calificación" value={quality} onChange={(event) => { setQuality(event.target.value); setPage(0); }}><option value="">Todas las calificaciones</option>{Object.entries(qualification).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select>
                         <button className={starred ? styles.selectedFilter : styles.button} type="button" aria-pressed={starred} onClick={() => { setStarred(!starred); setPage(0); }}><Star size={14} fill={starred ? 'currentColor' : 'none'} />Destacados</button>
-                        {filtersActive && <button type="button" className={styles.linkButton} onClick={() => { setTag(''); setQuality(''); setStarred(false); setPage(0); }}>Limpiar</button>}
+                        <label className={styles.checkbox}><input type="checkbox" checked={includeEmpty} onChange={(event) => { setIncludeEmpty(event.target.checked); setPage(0); }} />Incluir contactos sin mensajes (sólo comentaron)</label>
                     </div>}
+                    {anyActive && <button type="button" className={styles.clearFilters} onClick={clearAll}><X size={13} />Limpiar filtros</button>}
                     {unreadOnly && Boolean(unreadCount) && <button type="button" className={styles.markAll} disabled={markingAll} onClick={() => void markAllRead()}><CheckCheck size={14} />{markingAll ? 'Marcando…' : 'Marcar todas como leídas'}</button>}
                 </div>
                 {loading && !contacts.length && <p className={styles.empty} role="status">Cargando contactos…</p>}
-                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{unreadOnly && !search && !filtersActive ? 'No hay conversaciones esperando respuesta.' : search || filtersActive || unreadOnly ? 'No hay contactos con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando recibas mensajes o comentarios.'}</p></div>}
+                {!loading && !contacts.length && <div className={styles.empty}><MessageSquare size={24} /><p>{unreadOnly && !search && !filtersActive ? 'No hay conversaciones esperando respuesta.' : anyActive ? 'No hay conversaciones con estos filtros.' : 'Tus conversaciones van a aparecer acá cuando te escriban por DM.'}</p></div>}
                 <div className={styles.contactList}>{contacts.map((contact) => <button key={contact.id} type="button" className={`${styles.contact} ${selectedId === contact.id ? styles.activeContact : ''} ${contact.unread ? styles.unreadContact : ''}`} aria-pressed={selectedId === contact.id} onClick={() => setSelectedId(contact.id)}>
                     <Avatar contact={contact} />
                     <span className={styles.contactCopy}>
-                        <span className={styles.contactTop}><span className={styles.contactName}>{label(contact)}</span>{contact.starred && <Star size={12} fill="currentColor" className={styles.starIcon} />}{contact.last_inbound_at && <time className={styles.timestamp}>{shortDate(contact.last_inbound_at)}</time>}</span>
+                        <span className={styles.contactTop}><span className={styles.contactName}>{label(contact)}</span>{contact.starred && <Star size={12} fill="currentColor" className={styles.starIcon} />}{(contact.last_activity_at || contact.last_inbound_at) && <time className={styles.timestamp}>{shortDate((contact.last_activity_at || contact.last_inbound_at)!)}</time>}</span>
                         <span className={styles.contactBottom}>
                             {(() => { const sub = contact.username && label(contact) !== `@${contact.username}` ? `@${contact.username}` : contact.qualification !== 'new' ? qualification[contact.qualification] : ''; return sub ? <span className={styles.contactSub}>{sub}</span> : null; })()}
                             {contact.tags.slice(0, 2).map((item) => <span className={styles.smallTag} key={item.id}>{item.name}</span>)}

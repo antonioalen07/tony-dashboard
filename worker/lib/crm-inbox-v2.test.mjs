@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
-const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql', 'supabase_migration_push_tags.sql', 'supabase_migration_crm_inbox_v3.sql'];
+const files = ['supabase_migration_automations.sql', 'supabase_migration_automations_crm.sql', 'supabase_migration_crm_inbox_v2.sql', 'supabase_migration_push_tags.sql', 'supabase_migration_crm_inbox_v3.sql', 'supabase_migration_crm_inbox_v4.sql'];
 const sql = await Promise.all(files.map((f) => readFile(new URL(`../../${f}`, import.meta.url), 'utf8')));
 
 async function database() {
@@ -110,5 +110,20 @@ test('Historial: importa lo que falta en orden, sin duplicar ni avisar, y respet
         assert.ok(rows.every((x) => x.notified), 'lo importado no dispara avisos push');
         const { rows: [again] } = await db.query('SELECT crm_import_history($1,$2::jsonb) n', [l.id, JSON.stringify(msgs)]);
         assert.equal(again.n, 0);
+    } finally { await db.close(); }
+});
+
+test('Orden: last_activity_at sigue al último mensaje entrante o saliente, no a otras ediciones', async () => {
+    const db = await database();
+    try {
+        await receive(db, 'a-1', "now()-interval '2 days'", 'a');
+        await receive(db, 'b-1', "now()-interval '1 day'", 'b');
+        const a = await lead(db, 'a');
+        await db.query("UPDATE leads SET notes='editado' WHERE id=$1", [a.id]);
+        let order = (await db.query("SELECT instagram_user_id FROM leads ORDER BY last_activity_at DESC NULLS LAST")).rows.map((r) => r.instagram_user_id);
+        assert.deepEqual(order.slice(0, 2), ['b', 'a'], 'editar un contacto no lo sube');
+        await db.query("SELECT crm_record_echo('account','a','echo-a',now()::text,now(),'[]')");
+        order = (await db.query("SELECT instagram_user_id FROM leads ORDER BY last_activity_at DESC NULLS LAST")).rows.map((r) => r.instagram_user_id);
+        assert.deepEqual(order.slice(0, 2), ['a', 'b'], 'responder lo sube');
     } finally { await db.close(); }
 });

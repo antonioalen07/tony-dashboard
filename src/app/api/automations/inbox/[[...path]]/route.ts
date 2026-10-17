@@ -117,21 +117,37 @@ async function handle(request: Request, context: Context) {
             const offset = Math.max(0, Math.floor(Number(q.get('offset') || 0)) || 0);
             const tag = q.get('tag') ? uuid(q.get('tag')) : null;
             const selection = '*,lead_tag_assignments(tag_id,lead_tags(id,name))' + (tag ? ',tag_filter:lead_tag_assignments!inner(tag_id)' : '');
-            let query = db.from('leads').select(selection, { count: 'exact' })
-                .eq('ig_account_id', process.env.META_IG_ACCOUNT_ID || '17841476480622974')
-                .not('instagram_user_id', 'is', null)
-                .order('updated_at', { ascending: false }).range(offset, offset + limit - 1);
-            const search = leadSearchFilter(q.get('search') || '');
-            if (search) query = query.or(search);
-            if (tag) query = query.eq('tag_filter.tag_id', tag);
-            if (q.get('starred') === 'true') query = query.eq('starred', true);
-            if (q.get('unread') === 'true') query = query.eq('unread', true);
-            if (q.get('qualification')) {
-                const qualification = q.get('qualification')!;
-                if (!['new', 'qualified', 'customer', 'unqualified'].includes(qualification)) throw new InputError('Calificación inválida.');
-                query = query.eq('qualification', qualification);
-            }
-            const rows = await query;
+            const since = q.get('since');
+            if (since && !Number.isFinite(Date.parse(since))) throw new InputError('Período inválido.');
+            const qualification = q.get('qualification');
+            if (qualification && !['new', 'qualified', 'customer', 'unqualified'].includes(qualification)) throw new InputError('Calificación inválida.');
+            // Orden por el último mensaje (v4). Sin la migración, cae al orden viejo por updated_at.
+            // Tipo mínimo del builder: el inferido de supabase-js es demasiado profundo para TS con este select dinámico.
+            type Query = PromiseLike<{ data: unknown; error: { message: string; code?: string } | null; count: number | null }> & {
+                order(column: string, options: { ascending: boolean; nullsFirst?: boolean }): Query; range(from: number, to: number): Query;
+                or(filter: string): Query; eq(column: string, value: unknown): Query; not(column: string, op: string, value: unknown): Query; gte(column: string, value: string): Query;
+            };
+            const build = (byActivity: boolean): Query => {
+                let query = (db.from('leads').select(selection, { count: 'exact' }) as unknown as Query)
+                    .eq('ig_account_id', process.env.META_IG_ACCOUNT_ID || '17841476480622974')
+                    .not('instagram_user_id', 'is', null);
+                query = byActivity
+                    ? query.order('last_activity_at', { ascending: false, nullsFirst: false }).order('updated_at', { ascending: false })
+                    : query.order('updated_at', { ascending: false });
+                query = query.range(offset, offset + limit - 1);
+                const search = leadSearchFilter(q.get('search') || '');
+                if (search) query = query.or(search);
+                if (tag) query = query.eq('tag_filter.tag_id', tag);
+                if (q.get('starred') === 'true') query = query.eq('starred', true);
+                if (q.get('unread') === 'true') query = query.eq('unread', true);
+                if (qualification) query = query.eq('qualification', qualification);
+                // La bandeja muestra conversaciones: los contactos que sólo comentaron quedan en Contactos.
+                if (byActivity && q.get('all') !== 'true') query = query.not('last_activity_at', 'is', null);
+                if (byActivity && since) query = query.gte('last_activity_at', new Date(since).toISOString());
+                return query;
+            };
+            let rows = await build(true);
+            if (rows.error && ['42703', 'PGRST204'].includes(rows.error.code || '')) rows = await build(false);
             const leads = (result(rows) as unknown as RawLead[]).map(leadWithTags);
             // Fotos y nombres de Instagram: se completan en segundo plano y aparecen en el próximo refresco.
             after(() => refreshProfiles(leads as unknown as ProfileLead[]).catch(() => {}));
